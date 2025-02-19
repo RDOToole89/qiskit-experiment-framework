@@ -25,7 +25,9 @@
 #    - Understanding error propagation in entangled systems is key for improving fault-tolerant quantum computing.
 
 import sys
+import numpy as np
 from qiskit import QuantumCircuit, transpile
+from qiskit.quantum_info import Statevector
 from qiskit_aer import Aer
 from qiskit_aer.noise import (
     NoiseModel,
@@ -36,16 +38,51 @@ from qiskit_aer.noise import (
 import matplotlib.pyplot as plt
 
 # ✅ Read command-line arguments
-NOISE_TYPE = sys.argv[1].upper() if len(sys.argv) > 1 else "DEPOLARIZING"
-NOISE_ENABLED = sys.argv[2].lower() == "true" if len(sys.argv) > 2 else True
+STATE_TYPE = sys.argv[1].upper() if len(sys.argv) > 1 else "GHZ" # GHZ, W, G-CRY
+NOISE_TYPE = sys.argv[2].upper() if len(sys.argv) > 2 else "DEPOLARIZING"
 
-print(f"Running with noise type: {NOISE_TYPE}, Noise Enabled: {NOISE_ENABLED}")
+NOISE_ENABLED = sys.argv[3].strip().lower() == "true" if len(sys.argv) > 3 else True
 
-# Create 3-qubit GHZ state
+print(
+    f"Running with state type: {STATE_TYPE}, noise type: {NOISE_TYPE}, Noise Enabled: {NOISE_ENABLED}"
+)
+
+
+# ✅ Create 3-qubit state
 qc = QuantumCircuit(3, 3)
-qc.h(0)
-qc.cx(0, 1)
-qc.cx(1, 2)
+
+if STATE_TYPE == "GHZ":
+    qc.h(0)
+    qc.cx(0, 1)
+    qc.cx(1, 2)
+elif STATE_TYPE == "W":
+    # ----- OPTION 1: Build the W state via gates (this produces a 4-term state)
+    # qc.ry(2 * np.arccos(1 / np.sqrt(3)), 0)
+    # qc.cx(0, 1)
+    # qc.ry(2 * np.arccos(1 / np.sqrt(2)), 1)
+    # qc.cx(1, 2)
+
+    # ----- OPTION 2: Use initialize to guarantee the canonical single-excitation W state.
+    # The canonical 3-qubit W state (in Qiskit's ordering: |q2 q1 q0>) has nonzero amplitudes in:
+    #   |001> (qubit0=1), |010> (qubit1=1), and |100> (qubit2=1)
+    # For the basis ordering: |000>, |001>, |010>, |011>, |100>, |101>, |110>, |111>
+    w_state = [
+        0,               # |000>
+        1/np.sqrt(3),    # |001>
+        1/np.sqrt(3),    # |010>
+        0,               # |011>
+        1/np.sqrt(3),    # |100>
+        0,               # |101>
+        0,               # |110>
+        0                # |111>
+    ]
+    qc.initialize(w_state, [0, 1, 2])
+elif STATE_TYPE == "G-CRY":
+    qc.x(0)
+    qc.cry(2.0944, 0, 1)  # CRY(pi/3) to create equal superposition of |100> and |010>
+    qc.cry(2.0944, 1, 2)  # CRY(pi/3) to create |100> + |010> + |001>
+else:
+    raise ValueError(f"Invalid STATE_TYPE: {STATE_TYPE}. Choose 'GHZ' or 'W'.")
 
 if NOISE_ENABLED and NOISE_TYPE == "PHASE_FLIP":
     # ✅ Apply Hadamard gates before measurement to reveal phase flip errors.
@@ -58,7 +95,7 @@ if NOISE_ENABLED and NOISE_TYPE == "PHASE_FLIP":
     #     |1⟩ → (|0⟩ - |1⟩) / √2
     #   meaning a phase flip (Z error) becomes a bit flip in the new basis.
     # - Without this step, phase flip errors remain hidden in measurement results.
-    qc.h([0, 1, 2])  
+    qc.h([0, 1, 2])  # Apply Hadamards to expose phase flip errors
 
 if NOISE_ENABLED and NOISE_TYPE == "AMPLITUDE_DAMPING":
     # ✅ Apply Hadamard gates before measurement to expose decoherence effects.
@@ -67,9 +104,18 @@ if NOISE_ENABLED and NOISE_TYPE == "AMPLITUDE_DAMPING":
     # - Applying Hadamard gates **spreads the lost coherence across all qubits**,
     #   making decoherence effects **visible as bit-flip errors**.
     # - This helps us detect **whether coherence is lost gradually or instantaneously**.
-    qc.h([0, 1, 2])  
+    qc.h([0, 1, 2])  # Apply Hadamards to expose amplitude damping effects
 
 qc.measure([0, 1, 2], [0, 1, 2])  # Measure the qubits in the computational basis
+
+# --------------------------------------
+# Debugging: Get the ideal statevector (without measurement)
+# Remove measurement operations to see the pure state.
+qc_no_meas = qc.remove_final_measurements(inplace=False)
+ideal_state = Statevector.from_instruction(qc_no_meas)
+print("Ideal statevector (before noise & measurement):")
+print(ideal_state)
+# --------------------------------------
 
 # Run on simulator
 backend = Aer.get_backend("qasm_simulator")
@@ -95,23 +141,31 @@ if NOISE_ENABLED:
         # - Introduces errors via Pauli-Z flips.
         # - Mathematically: ρ → (1 - p) ρ + p ZρZ
         noise = pauli_error([("Z", 0.1), ("I", 0.9)])  # 10% phase flip error
-        noise_model.add_all_qubit_quantum_error(noise, ["id", "u1", "u2", "u3"])  # Apply to single-qubit gates
+        noise_model.add_all_qubit_quantum_error(
+            noise, ["id", "u1", "u2", "u3"]
+        )  # Apply to single-qubit gates
 
     elif NOISE_TYPE == "AMPLITUDE_DAMPING":
         # ✅ Amplitude Damping Noise Model:
         # - Represents energy loss (relaxation of |1⟩ → |0⟩), common in real qubits.
         # - Unlike depolarization, it introduces **asymmetry** by favoring |0⟩ states.
         noise = amplitude_damping_error(0.1)
-        noise_model.add_all_qubit_quantum_error(noise, ["id", "u1", "u2", "u3"])  # Apply to single-qubit gates
-
+        noise_model.add_all_qubit_quantum_error(
+            noise, ["id", "u1", "u2", "u3"]
+        )  # Apply to single-qubit gates
 
     else:
         raise ValueError(
             f"Invalid NOISE_TYPE: {NOISE_TYPE}. Choose 'DEPOLARIZING', 'PHASE_FLIP', or 'AMPLITUDE_DAMPING'."
         )
 
+print(f"Running with NOISE_ENABLED={NOISE_ENABLED}, Noise Model={noise_model}")
 # ✅ Run the circuit with or without noise
-job = backend.run(circuit_compiled, shots=1024, noise_model=noise_model) if NOISE_ENABLED else backend.run(circuit_compiled, shots=1024)
+job = (
+    backend.run(circuit_compiled, shots=1024, noise_model=noise_model)
+    if NOISE_ENABLED
+    else backend.run(circuit_compiled, shots=1024, noise_model=None)
+)
 
 # ✅ Get results
 result = job.result()
@@ -119,7 +173,7 @@ counts = result.get_counts()
 
 # ✅ Plot results
 color = "red" if NOISE_ENABLED else "blue"
-title = f"GHZ State Distribution {'With' if NOISE_ENABLED else 'Without'} {NOISE_TYPE} Noise"
+title = f"{STATE_TYPE} State Distribution {'With ' + NOISE_TYPE + ' Noise' if NOISE_ENABLED else 'Without Noise'}"
 
 plt.bar(counts.keys(), counts.values(), color=color)
 plt.xlabel("Qubit State")
@@ -158,7 +212,7 @@ plt.show()
 #   - The GHZ state was **mostly preserved** because **amplitude damping primarily affects qubits in |1⟩**.
 #   - There was a **slight bias toward |0⟩**, meaning the system **prefers the ground state**.
 # - **After applying Hadamards:**
-#   - The GHZ pattern **decomposed** into **four states**:  
+#   - The GHZ pattern **decomposed** into **four states**:
 #     **|000⟩, |011⟩, |101⟩, |110⟩**.
 #   - **Same even-parity structure as phase flip noise**, but with a slight **bias toward |0⟩**.
 # - **Key Feature:** Unlike depolarizing or phase flip noise, **amplitude damping represents irreversible energy loss**, which leads to a **slow drift toward the ground state**.
@@ -168,10 +222,10 @@ plt.show()
 # ✅ Observations of Amplitude Damping Noise vs Phase Flip Noise:
 # - Both noise types **preserve even parity**, meaning errors **do not spread randomly across all 8 states**.
 # - **Phase flip noise:**
-#   - Only **affects phase relationships** but does **not cause energy loss**.  
+#   - Only **affects phase relationships** but does **not cause energy loss**.
 #   - Hadamard transformation converts these **hidden errors into measurable bit flips**.
 # - **Amplitude damping noise:**
-#   - Represents **energy decay** rather than just phase shifts.  
+#   - Represents **energy decay** rather than just phase shifts.
 #   - Causes a **slight bias toward |0⟩**, meaning **states closer to the ground state become more probable**.
 # - **Both noise models result in a nearly even spread** among **4 states (|000⟩, |011⟩, |101⟩, |110⟩)**, showing that **entanglement constrains how errors propagate**.
 
