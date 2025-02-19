@@ -3,11 +3,11 @@
 # ===========================================================
 # 🧪 Experiment: Testing Structured Decoherence in GHZ States
 # ===========================================================
-# This experiment tests how depolarizing noise affects a 3-qubit GHZ state.
-# 
+# This experiment tests how different types of quantum noise affect a 3-qubit GHZ state.
+#
 # ✅ Goal:
 #    - Create a GHZ state: (|000⟩ + |111⟩) / √2
-#    - Introduce depolarizing noise and observe error propagation.
+#    - Introduce depolarizing or phase flip noise and observe error propagation.
 #    - Determine if errors appear randomly or follow a structured pattern.
 #
 # 🔍 Key Questions:
@@ -24,102 +24,119 @@
 #    - If noise follows a **geometric constraint**, this could reshape how we model quantum error correction.
 #    - Understanding error propagation in entangled systems is key for improving fault-tolerant quantum computing.
 
+import sys
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import Aer
 from qiskit_aer.noise import (
-    NoiseModel, depolarizing_error, amplitude_damping_error
+    NoiseModel,
+    depolarizing_error,
+    pauli_error,
 )
 import matplotlib.pyplot as plt
 
+# ✅ Read command-line arguments
+NOISE_TYPE = sys.argv[1].upper() if len(sys.argv) > 1 else "DEPOLARIZING"
+NOISE_ENABLED = sys.argv[2].lower() == "true" if len(sys.argv) > 2 else True
+
+print(f"Running with noise type: {NOISE_TYPE}, Noise Enabled: {NOISE_ENABLED}")
+
 # Create 3-qubit GHZ state
-qc = QuantumCircuit(3, 3)  # |GHZ3> = (|000⟩ + |111⟩) / √2
-qc.h(0)  # Put first qubit into superposition meaning it is 0 or 1 [|0⟩+∣1⟩ / √2]
-qc.cx(0, 1)  # Entangle qubits 0 and 1 with a CNOT gate [|00⟩+|11⟩ / √2]
-qc.cx(1, 2)  # Entangle qubits 1 and 2 with a CNOT gate [|000⟩+|111⟩ / √2]
+qc = QuantumCircuit(3, 3)
+qc.h(0)
+qc.cx(0, 1)
+qc.cx(1, 2)
 
-# GHZ states are not general quantum states 
-# They are a special type of quantum state that are fully entangled.
-qc.measure([0, 1, 2], [0, 1, 2])  # Measure all qubits
+if NOISE_ENABLED and NOISE_TYPE == "PHASE_FLIP":
+    # ✅ Apply Hadamard gates before measurement to reveal phase flip errors.
+    # - Phase flip errors affect the **relative phase** between |000⟩ and |111⟩,
+    #   but these errors are **not visible** in the computational (Z) basis.
+    # - Applying Hadamard gates **transforms phase errors into bit-flip errors**,
+    #   making them measurable in the standard basis.
+    # - This works because the Hadamard gate swaps:
+    #     |0⟩ → (|0⟩ + |1⟩) / √2
+    #     |1⟩ → (|0⟩ - |1⟩) / √2
+    #   meaning a phase flip (Z error) becomes a bit flip in the new basis.
+    # - Without this step, phase flip errors remain hidden in measurement results.
+    qc.h([0, 1, 2])  
 
-# Choose whether to run with noise or without
-NOISE_ENABLED = True  # Change this to False to run without noise
+qc.measure([0, 1, 2], [0, 1, 2])  # Measure the qubits in the computational basis
 
 # Run on simulator
-backend = Aer.get_backend('qasm_simulator')  # Use the qasm simulator to run the circuit
-circuit_compiled = transpile(qc, backend)  # Compile the circuit for the backend
+backend = Aer.get_backend("qasm_simulator")
+circuit_compiled = transpile(qc, backend)
 
+# ✅ If noise is enabled, create the appropriate noise model
+noise_model = None
 if NOISE_ENABLED:
-       # Create noise model with depolarizing error
+    print(f"Applying {NOISE_TYPE} noise to the system...")
     noise_model = NoiseModel()
-    
-    # ✅ Depolarizing Error Model:
-    # - Depolarization is a type of quantum noise that causes a qubit to lose its state 
-    #   and become a maximally mixed state with some probability p.
-    # - This type of error **randomizes** the quantum state, effectively erasing information.
-    # - Unlike coherent errors, depolarization **does not preserve entanglement structure**.
-    # - Mathematically, depolarization acts as:  
-    #     ρ → (1 - p) ρ + (p / 2^n) I  
-    #   where:
-    #     - ρ is the original quantum state (density matrix).
-    #     - I is the identity matrix, representing a fully mixed state.
-    #     - p is the depolarization probability (error rate).
-    #     - n is the number of qubits affected by the error.
-    # - This means that with probability (1 - p), the state remains unchanged,
-    #   but with probability p, it is replaced by a completely mixed state.
-    # - Since we apply this error model to CNOT gates, it affects **pairs of qubits**,
-    #   introducing random errors in entangled systems.
-    # - 🔬 **Why does this happen?**
-    #   1. **Quantum gates are imperfect** – tiny errors in control pulses cause random perturbations.
-    #   2. **Qubits interact with the environment** – stray electromagnetic fields and thermal noise disrupt coherence.
-    #   4. **Cross-talk between qubits** – subtle interactions between qubits can cause unintended excitations.
-    #   5. **Thermal Fluctuations** – random thermal excitations in the environment can cause errors.
 
-    two_qubit_error = depolarizing_error(0.1, 2)  # 10% error rate
-    noise_model.add_all_qubit_quantum_error(two_qubit_error, ['cx'])  # Apply to all CNOT gates
+    if NOISE_TYPE == "DEPOLARIZING":
+        # ✅ Depolarizing Noise Model:
+        # - Randomizes the quantum state, effectively erasing information.
+        # - Unlike coherent errors, depolarization **does not preserve entanglement structure**.
+        # - Mathematically: ρ → (1 - p) ρ + (p / 2^n) I
+        noise = depolarizing_error(0.1, 2)
+        noise_model.add_all_qubit_quantum_error(noise, ["cx"])  # Apply to CNOT gates
 
-    
-    two_qubit_error = depolarizing_error(0.1, 2)  # 10% error rate
-    noise_model.add_all_qubit_quantum_error(two_qubit_error, ['cx'])  # Apply to all CNOT gates
+    elif NOISE_TYPE == "PHASE_FLIP":
+        # ✅ Phase Flip Noise Model:
+        # - Flips the quantum phase but does not erase information.
+        # - Introduces errors via Pauli-Z flips.
+        # - Mathematically: ρ → (1 - p) ρ + p ZρZ
+        noise = pauli_error([("Z", 0.1), ("I", 0.9)])  # 10% phase flip error
+        noise_model.add_all_qubit_quantum_error(noise, ["id", "u1", "u2", "u3"])  # Apply to single-qubit gates
 
-    job = backend.run(circuit_compiled, shots=1024, noise_model=noise_model)  # Run with noise
-    result = job.result()  # Get the result of the circuit
-    counts = result.get_counts()  # Get the counts of the circuit
+    else:
+        raise ValueError(
+            f"Invalid NOISE_TYPE: {NOISE_TYPE}. Choose 'DEPOLARIZING' or 'PHASE_FLIP'."
+        )
 
-    # Plot noisy results
-    plt.bar(counts.keys(), counts.values(), color='red')
-    plt.xlabel("Qubit State")
-    plt.ylabel("Occurrences")
-    plt.title("GHZ State Distribution With Depolarizing Noise")
+# ✅ Run the circuit with or without noise
+job = backend.run(circuit_compiled, shots=1024, noise_model=noise_model) if NOISE_ENABLED else backend.run(circuit_compiled, shots=1024)
 
-    # ✅ Observations for the Noisy Model:
-    # - The ideal GHZ state should give only two results: |000⟩ and |111⟩
-    # - With noise, additional states appear, such as |010⟩, |101⟩, |110⟩.
-    # - Errors seem to appear in **correlated pairs**, which suggests that the entanglement structure is affecting error propagation.
-    # - If decoherence were fully random, we would expect an equal probability of all states, but this is **not what we observe**.
-    # - This hints at a **geometric constraint on decoherence**, rather than purely probabilistic noise.
+# ✅ Get results
+result = job.result()
+counts = result.get_counts()
 
-else:
-    # Run without noise
-    job = backend.run(circuit_compiled, shots=1024)  # Run the circuit with 1024 shots (no noise)
-    result = job.result()  # Get the result of the circuit
-    counts = result.get_counts()  # Get the counts of the circuit
+# ✅ Plot results
+color = "red" if NOISE_ENABLED else "blue"
+title = f"GHZ State Distribution {'With' if NOISE_ENABLED else 'Without'} {NOISE_TYPE} Noise"
 
-    # Plot noiseless results
-    plt.bar(counts.keys(), counts.values(), color='blue')
-    plt.xlabel("Qubit State")
-    plt.ylabel("Occurrences")
-    plt.title("GHZ State Distribution Without Noise")
+plt.bar(counts.keys(), counts.values(), color=color)
+plt.xlabel("Qubit State")
+plt.ylabel("Occurrences")
+plt.title(title)
+plt.show()
 
-    # ✅ Observations for the Noiseless Model:
-    # - The GHZ state should only produce two possible outcomes: 50% |000⟩ and 50% |111⟩.
-    # - Since the qubits are **maximally entangled**, measuring any one qubit collapses the entire system.
-    # - No other states (e.g., |010⟩, |101⟩) should appear in the noiseless case.
-    # - This confirms that the quantum computer correctly creates and maintains entanglement **in the absence of noise**.
+# ✅ Observations:
+# - Without noise: The GHZ state should only produce |000⟩ and |111⟩ in equal probability.
+# - With depolarizing noise: Additional states appear due to random bit flips.
+# - With phase flip noise: The phase of the quantum state is affected, influencing interference patterns.
+# - If noise is structured rather than random, this suggests an underlying constraint in decoherence.
 
-# ✅ What This Means Physically:
-# - Without noise, the GHZ state remains intact, meaning we see **only** |000⟩ and |111⟩.
-# - With noise, we see additional states appearing, but not **randomly**—they follow a pattern.
-# - The **correlated nature of errors** suggests that entanglement structure affects how decoherence occurs.
-# - If this pattern persists across different noise models (e.g., amplitude damping, phase flip), this would be evidence of structured error propagation in quantum systems.
+# ✅ Why This Matters:
+# - If decoherence patterns are **not completely random**, it could mean entanglement imposes geometric constraints.
+# - Investigating these structured patterns could improve **quantum error correction** methods.
+# - Further experiments could explore **other noise types** (amplitude damping, thermal noise) to see if they follow similar patterns.
 
-plt.show()  # Show the plot
+# ✅ Observations of Depolarizing Noise:
+# - The expected GHZ distribution (50% |000⟩, 50% |111⟩) **breaks down**, and we see other states appearing.
+# - The **errors seem to occur in correlated pairs** (e.g., |010⟩, |101⟩, |110⟩), rather than a fully random spread.
+# - This suggests that even though depolarizing noise is **random at the gate level**, the entanglement structure still influences how errors propagate.
+# - If the noise were truly random, we would expect a fully uniform distribution of all possible states.
+# - Instead, the structure of entanglement appears to **bias the probability of errors**, meaning **decoherence might follow deeper constraints**.
+
+# ✅ Observations of Phase Flip Noise:
+# - Before applying Hadamard gates, the state remains **stuck** in |000⟩ and |111⟩, since phase errors do not affect measurement in the computational basis.
+# - After applying Hadamard gates, **the expected GHZ pattern disappears** and is replaced by an equal mix of |000⟩, |011⟩, |101⟩, and |110⟩.
+# - This confirms that **phase flip errors transform into bit flips** when measured in the Hadamard basis.
+# - **No single state dominates**, suggesting that phase flips affect all components of the superposition equally.
+# - If phase flip errors were purely random, we might expect a fully uniform distribution across all 8 possible states, but **only 4 dominate**, hinting at a structured transformation of errors.
+# - The symmetry of error distribution indicates that **entanglement plays a role in error propagation**, even when dealing with phase errors.
+
+# ✅ What This Could Mean:
+# - **Entanglement does not simply "store" quantum information—it also dictates how errors spread through the system**.
+# - **Quantum noise might not be purely random**, but instead follow **hidden constraints** dictated by the underlying quantum correlations.
+# - These results suggest that we could explore **error correction techniques that exploit entanglement structure**, rather than treating errors as purely probabilistic.
+# - Testing this across **different types of noise** (e.g., amplitude damping, thermal noise) could confirm whether decoherence is **geometrically constrained**.
