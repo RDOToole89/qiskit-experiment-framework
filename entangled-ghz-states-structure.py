@@ -49,10 +49,37 @@ backend = Aer.get_backend('qasm_simulator')  # Use the qasm simulator to run the
 circuit_compiled = transpile(qc, backend)  # Compile the circuit for the backend
 
 if NOISE_ENABLED:
-    # Create noise model with depolarizing error
+       # Create noise model with depolarizing error
     noise_model = NoiseModel()
+    
+    # ✅ Depolarizing Error Model:
+    # - Depolarization is a type of quantum noise that causes a qubit to lose its state 
+    #   and become a maximally mixed state with some probability p.
+    # - This type of error **randomizes** the quantum state, effectively erasing information.
+    # - Unlike coherent errors, depolarization **does not preserve entanglement structure**.
+    # - Mathematically, depolarization acts as:  
+    #     ρ → (1 - p) ρ + (p / 2^n) I  
+    #   where:
+    #     - ρ is the original quantum state (density matrix).
+    #     - I is the identity matrix, representing a fully mixed state.
+    #     - p is the depolarization probability (error rate).
+    #     - n is the number of qubits affected by the error.
+    # - This means that with probability (1 - p), the state remains unchanged,
+    #   but with probability p, it is replaced by a completely mixed state.
+    # - Since we apply this error model to CNOT gates, it affects **pairs of qubits**,
+    #   introducing random errors in entangled systems.
+    # - 🔬 **Why does this happen?**
+    #   1. **Quantum gates are imperfect** – tiny errors in control pulses cause random perturbations.
+    #   2. **Qubits interact with the environment** – stray electromagnetic fields and thermal noise disrupt coherence.
+    #   4. **Cross-talk between qubits** – subtle interactions between qubits can cause unintended excitations.
+    #   5. **Thermal Fluctuations** – random thermal excitations in the environment can cause errors.
+
     two_qubit_error = depolarizing_error(0.1, 2)  # 10% error rate
-    noise_model.add_all_qubit_quantum_error(two_qubit_error, ['cx'])
+    noise_model.add_all_qubit_quantum_error(two_qubit_error, ['cx'])  # Apply to all CNOT gates
+
+    
+    two_qubit_error = depolarizing_error(0.1, 2)  # 10% error rate
+    noise_model.add_all_qubit_quantum_error(two_qubit_error, ['cx'])  # Apply to all CNOT gates
 
     job = backend.run(circuit_compiled, shots=1024, noise_model=noise_model)  # Run with noise
     result = job.result()  # Get the result of the circuit
