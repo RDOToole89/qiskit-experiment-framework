@@ -31,6 +31,7 @@ from qiskit_aer.noise import (
     NoiseModel,
     depolarizing_error,
     pauli_error,
+    amplitude_damping_error,
 )
 import matplotlib.pyplot as plt
 
@@ -57,6 +58,15 @@ if NOISE_ENABLED and NOISE_TYPE == "PHASE_FLIP":
     #     |1⟩ → (|0⟩ - |1⟩) / √2
     #   meaning a phase flip (Z error) becomes a bit flip in the new basis.
     # - Without this step, phase flip errors remain hidden in measurement results.
+    qc.h([0, 1, 2])  
+
+if NOISE_ENABLED and NOISE_TYPE == "AMPLITUDE_DAMPING":
+    # ✅ Apply Hadamard gates before measurement to expose decoherence effects.
+    # - Amplitude damping noise causes energy loss, which gradually collapses the state to |000⟩.
+    # - However, if we measure in the standard basis, we mostly just see |000⟩.
+    # - Applying Hadamard gates **spreads the lost coherence across all qubits**,
+    #   making decoherence effects **visible as bit-flip errors**.
+    # - This helps us detect **whether coherence is lost gradually or instantaneously**.
     qc.h([0, 1, 2])  
 
 qc.measure([0, 1, 2], [0, 1, 2])  # Measure the qubits in the computational basis
@@ -87,9 +97,17 @@ if NOISE_ENABLED:
         noise = pauli_error([("Z", 0.1), ("I", 0.9)])  # 10% phase flip error
         noise_model.add_all_qubit_quantum_error(noise, ["id", "u1", "u2", "u3"])  # Apply to single-qubit gates
 
+    elif NOISE_TYPE == "AMPLITUDE_DAMPING":
+        # ✅ Amplitude Damping Noise Model:
+        # - Represents energy loss (relaxation of |1⟩ → |0⟩), common in real qubits.
+        # - Unlike depolarization, it introduces **asymmetry** by favoring |0⟩ states.
+        noise = amplitude_damping_error(0.1)
+        noise_model.add_all_qubit_quantum_error(noise, ["id", "u1", "u2", "u3"])  # Apply to single-qubit gates
+
+
     else:
         raise ValueError(
-            f"Invalid NOISE_TYPE: {NOISE_TYPE}. Choose 'DEPOLARIZING' or 'PHASE_FLIP'."
+            f"Invalid NOISE_TYPE: {NOISE_TYPE}. Choose 'DEPOLARIZING', 'PHASE_FLIP', or 'AMPLITUDE_DAMPING'."
         )
 
 # ✅ Run the circuit with or without noise
@@ -134,6 +152,28 @@ plt.show()
 # - **No single state dominates**, suggesting that phase flips affect all components of the superposition equally.
 # - If phase flip errors were purely random, we might expect a fully uniform distribution across all 8 possible states, but **only 4 dominate**, hinting at a structured transformation of errors.
 # - The symmetry of error distribution indicates that **entanglement plays a role in error propagation**, even when dealing with phase errors.
+
+# ✅ Observations of Amplitude Damping Noise:
+# - **Without Hadamard transformation:**
+#   - The GHZ state was **mostly preserved** because **amplitude damping primarily affects qubits in |1⟩**.
+#   - There was a **slight bias toward |0⟩**, meaning the system **prefers the ground state**.
+# - **After applying Hadamards:**
+#   - The GHZ pattern **decomposed** into **four states**:  
+#     **|000⟩, |011⟩, |101⟩, |110⟩**.
+#   - **Same even-parity structure as phase flip noise**, but with a slight **bias toward |0⟩**.
+# - **Key Feature:** Unlike depolarizing or phase flip noise, **amplitude damping represents irreversible energy loss**, which leads to a **slow drift toward the ground state**.
+# - **The same parity constraints still hold**, meaning **error propagation is structured, not purely random**.
+
+
+# ✅ Observations of Amplitude Damping Noise vs Phase Flip Noise:
+# - Both noise types **preserve even parity**, meaning errors **do not spread randomly across all 8 states**.
+# - **Phase flip noise:**
+#   - Only **affects phase relationships** but does **not cause energy loss**.  
+#   - Hadamard transformation converts these **hidden errors into measurable bit flips**.
+# - **Amplitude damping noise:**
+#   - Represents **energy decay** rather than just phase shifts.  
+#   - Causes a **slight bias toward |0⟩**, meaning **states closer to the ground state become more probable**.
+# - **Both noise models result in a nearly even spread** among **4 states (|000⟩, |011⟩, |101⟩, |110⟩)**, showing that **entanglement constrains how errors propagate**.
 
 # ✅ What This Could Mean:
 # - **Entanglement does not simply "store" quantum information—it also dictates how errors spread through the system**.
