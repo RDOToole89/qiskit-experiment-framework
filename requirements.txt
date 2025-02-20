@@ -1,11 +1,25 @@
-certifi==2024.12.14
-cffi==1.17.1
-cryptography==44.0.0
-packaging==24.2
-pycparser==2.22
-pywatchman==2.0.0
-wheel @ file:///opt/homebrew/Cellar/python%403.13/3.13.1/libexec/wheel-0.45.1-py3-none-any.whl#sha256=da46333d5dcbde6e20cf7e2f8fff9e9ce76e8c94dc4afd6fb95fc4bc2745fb5e
+# ==========================
+# ✅ General Dependencies
+# ==========================
 
-# Added Qiskit dependencies
-qiskit
-qiskit-aer
+certifi==2024.12.14       # SSL certificate validation (latest version)
+cffi==1.17.1              # C Foreign Function Interface for Python
+cryptography==44.0.0      # Secure communications and cryptographic functions
+packaging==24.2           # Utilities for packaging Python projects
+pycparser==2.22           # Required for CFFI (C parser)
+wheel @ file:///opt/homebrew/Cellar/python%403.13/3.13.1/libexec/wheel-0.45.1-py3-none-any.whl#sha256=da46333d5dcbde6e20cf7e2f8fff9e9ce76e8c94dc4afd6fb95fc4bc2745fb5e # Universal package manager (latest version)      
+
+# ==========================
+# ✅ Qiskit Dependencies (Latest versions as of Feb 2025)
+# ==========================
+
+qiskit==1.3.2             # Main Qiskit framework
+qiskit-aer==0.16.1        # Qiskit Aer simulator (high-performance quantum circuit simulation)
+qiskit-ibm-runtime==0.36.1 # IBM Quantum cloud execution framework
+
+# ==========================
+# ✅ Scientific Computing & Visualization
+# ==========================
+
+matplotlib==3.10.0         # Visualization & plotting for quantum experiments
+numpy==1.26.3             # Essential for numerical operations and matrices

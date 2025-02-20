@@ -7,7 +7,7 @@ An interactive, modular quantum simulation tool built with **Qiskit**. This prog
 ## 🏗️ Project Structure
 
 ```
-qiskit-practice/
+qiskit-experiments/
 │── quantum_experiment/       # Core quantum experiment module
 │   │── __init__.py           # Module initialization
 │   │── config.py             # Default configurations
@@ -38,10 +38,20 @@ qiskit-practice/
 - **Python 3.8+**
 - **Qiskit** (Quantum computing framework)
 
-### 2️⃣ Install Dependencies
+### 2️⃣ Setting Up a Virtual Environment (Recommended)
 
 ```sh
-pip install -r requirements.txt
+python3 -m venv qiskit_env
+source qiskit_env/bin/activate  # (Mac/Linux)
+```
+
+(For Windows: `qiskit_env\Scripts\activate`)
+
+### 3️⃣ Install Dependencies
+
+```sh
+pip install --upgrade pip setuptools wheel  # Ensure latest package tools
+pip install --no-cache-dir --prefer-binary -r requirements.txt
 ```
 
 ---
