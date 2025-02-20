@@ -23,3 +23,5 @@ qiskit-ibm-runtime==0.36.1 # IBM Quantum cloud execution framework
 
 matplotlib==3.10.0         # Visualization & plotting for quantum experiments
 numpy==1.26.3             # Essential for numerical operations and matrices
+hypernetx==2.3.13          # Hypergraph visualization for quantum correlations
+fastjsonschema==2.16.0     # JSON schema validation (required by hypernetx)
