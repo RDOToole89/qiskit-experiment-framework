@@ -15,3 +15,23 @@ build/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# Logs and results (optional, if you don't want to track generated logs/results)
+logs/
+results/
+
+# Temporary and system files
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# IDE and editor-specific files
+.vscode/
+.idea/
+
+.vscode/*.code-workspace
+.vscode/history/
+.vscode/workspaceStorage/
+.vscode/User/
