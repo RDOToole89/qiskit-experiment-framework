@@ -27,14 +27,6 @@ from qiskit.quantum_info import DensityMatrix
 from quantum_experiment.run_experiment import run_experiment
 from quantum_experiment.utils import ExperimentUtils
 from quantum_experiment.visualization import Visualizer
-from quantum_experiment.config import (
-    DEFAULT_NUM_QUBITS,
-    DEFAULT_STATE_TYPE,
-    DEFAULT_NOISE_TYPE,
-    DEFAULT_NOISE_ENABLED,
-    DEFAULT_SHOTS,
-    DEFAULT_SIM_MODE,
-)
 
 # Suppress Qiskit deprecation warnings for cleaner logs
 warnings.filterwarnings("ignore", category=DeprecationWarning)

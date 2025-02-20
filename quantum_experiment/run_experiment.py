@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# src/quantum_experiment/run_experiment.py
+
 """
 Run quantum experiments with specified parameters, designed for extensibility and research integration.
 
@@ -60,7 +63,7 @@ def run_experiment(
 
     Args:
         num_qubits (int): Number of qubits in the experiment (minimum 1).
-        state_type (str): Type of quantum state ("GHZ", "W", "G-CRY", default "GHZ").
+        state_type (str): Type of quantum state ("GHZ", "W", "CLUSTER", default "GHZ").
         noise_type (str): Type of noise ("DEPOLARIZING", "PHASE_FLIP", etc., default "DEPOLARIZING").
         noise_enabled (bool): Whether to apply noise (default True).
         shots (int): Number of shots for qasm simulation (default 1024).

@@ -4,7 +4,7 @@
 Quantum Experiment Framework
 
 This package provides:
-- **State preparation**: GHZ, W, G-CRY states with entanglement control.
+- **State preparation**: GHZ, W, CLUSTER states with entanglement control.
 - **Noise modeling**: Depolarizing, phase flip, thermal relaxation, bit flip, etc.
 - **Quantum execution**: Configurable simulation with Qiskit Aer.
 - **Visualization tools**: Histograms, density matrices, hypergraph mapping.
@@ -35,7 +35,7 @@ from .config import (  # Centralized experiment configurations
     DEFAULT_T2,
     DEFAULT_Z_PROB,
     DEFAULT_I_PROB,
-    DEFAULT_GCRY_ANGLE,
+    DEFAULT_CLUSTER_LATTICE,
 )
 
 # Expose key functions and classes for easier package imports
@@ -56,5 +56,5 @@ __all__ = [
     "DEFAULT_T2",
     "DEFAULT_Z_PROB",
     "DEFAULT_I_PROB",
-    "DEFAULT_GCRY_ANGLE",
+    "DEFAULT_CLUSTER_LATTICE",
 ]

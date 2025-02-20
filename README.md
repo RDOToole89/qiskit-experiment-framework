@@ -7,13 +7,13 @@ An interactive, modular quantum simulation tool built with **Qiskit**. This prog
 ## 🏗️ Project Structure
 
 ```
-qiskit-experiments/
+src/
 │── quantum_experiment/       # Core quantum experiment module
 │   │── __init__.py           # Module initialization
 │   │── config.py             # Default configurations
 │   │── noise_models.py       # Quantum noise model definitions
 │   │── run_experiment.py     # Function to run quantum circuits
-│   │── state_preparation.py  # State preparation (GHZ, W, G-CRY, etc.)
+│   │── state_preparation.py  # State preparation (GHZ, W, CLUSTER, etc.)
 │   │── utils.py              # Utility functions (logging, validation, saving results)
 │   │── visualization.py      # Visualization utilities (histograms, density matrix plots)
 │
@@ -51,7 +51,7 @@ source qiskit_env/bin/activate  # (Mac/Linux)
 
 ```sh
 pip install --upgrade pip setuptools wheel  # Ensure latest package tools
-pip install --no-cache-dir --prefer-binary -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ---
@@ -69,7 +69,7 @@ python main.py
 When you run the script, you will be prompted to:
 
 - Choose **qubit count**
-- Select a **quantum state type** (GHZ, W, G-CRY)
+- Select a **quantum state type** (GHZ, W, CLUSTER)
 - Apply **noise models** (Depolarizing, Phase Flip, etc.)
 - Specify the **number of shots**
 - Select **simulation mode** (QASM or Density Matrix)
@@ -102,7 +102,7 @@ python scripts/run_experiment.py --num_qubits 3 --state_type GHZ --noise_type DE
 | Argument       | Description                                      | Default        |
 | -------------- | ------------------------------------------------ | -------------- |
 | `--num_qubits` | Number of qubits                                 | `3`            |
-| `--state_type` | Quantum state (`GHZ`, `W`, `G-CRY`)              | `GHZ`          |
+| `--state_type` | Quantum state (`GHZ`, `W`, `CLUSTER`)            | `GHZ`          |
 | `--noise_type` | Noise model (`DEPOLARIZING`, `PHASE_FLIP`, etc.) | `DEPOLARIZING` |
 | `--shots`      | Number of shots per execution                    | `1024`         |
 | `--sim_mode`   | Simulation mode (`qasm` or `density`)            | `qasm`         |

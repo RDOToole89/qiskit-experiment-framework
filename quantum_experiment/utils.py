@@ -141,7 +141,7 @@ class ExperimentUtils:
             "--angle",
             type=float,
             default=None,
-            help="Angle for G-CRY state (radians, default π/3 if not specified)",
+            help="Angle for CLUSTER state (radians, default π/3 if not specified)",
         )
         parser.add_argument(
             "--custom_params",
@@ -242,7 +242,7 @@ class ExperimentUtils:
             state_type (str): Quantum state type (e.g., "GHZ").
             noise_type (str): Noise type (e.g., "DEPOLARIZING").
             sim_mode (str): Simulation mode ("qasm" or "density").
-            angle (float, optional): Angle for G-CRY state (radians).
+            angle (float, optional): Angle for CLUSTER state (radians).
             error_rate (float, optional): Base error rate for noise.
             z_prob (float, optional): Z probability for PHASE_FLIP noise.
             i_prob (float, optional): I probability for PHASE_FLIP noise.
@@ -272,11 +272,11 @@ class ExperimentUtils:
                 f"Invalid simulation mode: {sim_mode}. Choose from ['qasm', 'density']"
             )
 
-        # Validate G-CRY angle if state_type is G-CRY
-        if state_type == "G-CRY" and angle is not None:
+        # Validate CLUSTER angle if state_type is CLUSTER
+        if state_type == "CLUSTER" and angle is not None:
             if not (0 <= angle <= 2 * np.pi):
                 raise ValueError(
-                    "Angle for G-CRY state must be between 0 and 2π radians."
+                    "Angle for CLUSTER state must be between 0 and 2π radians."
                 )
 
         # Validate noise parameters
@@ -329,12 +329,12 @@ class ExperimentUtils:
         Raises:
             ValueError: If result type is unsupported.
         """
-        # Ensure the results directory exists
-        results_dir = "results"
-        os.makedirs(results_dir, exist_ok=True)
+        RESULTS_DIR = "results"
+        if not os.path.exists(RESULTS_DIR):
+            os.makedirs(RESULTS_DIR)
 
         # Construct the full path
-        full_filename = os.path.join(results_dir, filename)
+        full_filename = os.path.join(RESULTS_DIR, filename)
 
         if isinstance(result, dict):  # Counts from qasm mode
             os.makedirs(
