@@ -23,10 +23,9 @@ import json
 import warnings
 from typing import Optional, Dict
 from qiskit.quantum_info import DensityMatrix
-from quantum_experiment.run_experiment import run_experiment
-from quantum_experiment.utils import ExperimentUtils
-from quantum_experiment.visualization import Visualizer
-from quantum_experiment.config import (
+from src.run_experiment import run_experiment
+from src.visualization import plot_density_matrix, plot_histogram, plot_hypergraph
+from src.config import (
     DEFAULT_NUM_QUBITS,
     DEFAULT_STATE_TYPE,
     DEFAULT_NOISE_TYPE,
@@ -35,6 +34,8 @@ from quantum_experiment.config import (
     DEFAULT_SIM_MODE,
     DEFAULT_ERROR_RATE,
 )
+from src.utils import save_results
+from src.utils.logger_setup import logger
 
 # Suppress Qiskit deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -52,7 +53,6 @@ VALID_NOISE_TYPES = list(NOISE_SHORTCUTS.values())
 VALID_STATE_TYPES = ["GHZ", "W", "CLUSTER"]  # Matches updated state_preparation.py
 
 # Configure logger
-logger = ExperimentUtils.setup_logger()
 
 
 def get_input(prompt: str, default: str, valid_options: Optional[list] = None) -> str:
@@ -381,7 +381,7 @@ def interactive_experiment():
             f"results/experiment_results_{args['num_qubits']}q_{args['state_type']}_"
             f"{args['noise_type']}_{args['sim_mode']}_{timestamp}.{'json' if args['sim_mode'] == 'qasm' else 'npy'}"
         )
-        ExperimentUtils.save_results(result, filename)
+        save_results(result, filename)
         print(
             f"\n✅ Experiment completed successfully!\n📁 Results saved in `{filename}`"
         )
@@ -390,7 +390,7 @@ def interactive_experiment():
         if args["visualization_type"] == "plot":
             if args["sim_mode"] == "qasm":
                 if args["save_plot"]:
-                    Visualizer.plot_histogram(
+                    plot_histogram(
                         result["counts"],
                         state_type=args["state_type"],
                         noise_type=(
@@ -402,7 +402,7 @@ def interactive_experiment():
                     )
                 else:
                     show_plot_nonblocking(
-                        Visualizer.plot_histogram,
+                        plot_histogram,
                         result["counts"],
                         state_type=args["state_type"],
                         noise_type=(
@@ -415,7 +415,7 @@ def interactive_experiment():
                 args["show_real"] = args.get("show_real", False)
                 args["show_imag"] = args.get("show_imag", False)
                 if args["save_plot"]:
-                    Visualizer.plot_density_matrix(
+                    plot_density_matrix(
                         result,
                         cmap="viridis",
                         show_real=args["show_real"],
@@ -424,7 +424,7 @@ def interactive_experiment():
                     )
                 else:
                     show_plot_nonblocking(
-                        Visualizer.plot_density_matrix,
+                        plot_density_matrix,
                         result,
                         cmap="viridis",
                         show_real=args["show_real"],
@@ -445,7 +445,7 @@ def interactive_experiment():
                 )
             )
             if args["save_plot"]:
-                Visualizer.plot_hypergraph(
+                plot_hypergraph(
                     correlation_data,
                     state_type=args["state_type"],
                     noise_type=args["noise_type"] if args["noise_enabled"] else None,
@@ -453,7 +453,7 @@ def interactive_experiment():
                 )
             else:
                 show_plot_nonblocking(
-                    Visualizer.plot_hypergraph,
+                    plot_hypergraph,
                     correlation_data,
                     state_type=args["state_type"],
                     noise_type=args["noise_type"] if args["noise_enabled"] else None,
@@ -480,7 +480,7 @@ def interactive_experiment():
                     f"results/experiment_results_{args['num_qubits']}q_{args['state_type']}_"
                     f"{args['noise_type']}_{args['sim_mode']}_{rerun_timestamp}_rerun.{'json' if args['sim_mode'] == 'qasm' else 'npy'}"
                 )
-                ExperimentUtils.save_results(result, rerun_filename)
+                save_results(result, rerun_filename)
                 print(
                     f"\n✅ Rerun completed successfully!\n📁 Results saved in `{rerun_filename}`"
                 )
@@ -489,7 +489,7 @@ def interactive_experiment():
                 if args["visualization_type"] == "plot":
                     if args["sim_mode"] == "qasm":
                         if args["save_plot"]:
-                            Visualizer.plot_histogram(
+                            plot_histogram(
                                 result["counts"],
                                 state_type=args["state_type"],
                                 noise_type=(
@@ -503,7 +503,7 @@ def interactive_experiment():
                             )
                         else:
                             show_plot_nonblocking(
-                                Visualizer.plot_histogram,
+                                plot_histogram,
                                 result["counts"],
                                 state_type=args["state_type"],
                                 noise_type=(
@@ -518,7 +518,7 @@ def interactive_experiment():
                         args["show_real"] = args.get("show_real", False)
                         args["show_imag"] = args.get("show_imag", False)
                         if args["save_plot"]:
-                            Visualizer.plot_density_matrix(
+                            plot_density_matrix(
                                 result,
                                 cmap="viridis",
                                 show_real=args["show_real"],
@@ -527,7 +527,7 @@ def interactive_experiment():
                             )
                         else:
                             show_plot_nonblocking(
-                                Visualizer.plot_density_matrix,
+                                plot_density_matrix,
                                 result,
                                 cmap="viridis",
                                 show_real=args["show_real"],
@@ -548,7 +548,7 @@ def interactive_experiment():
                         )
                     )
                     if args["save_plot"]:
-                        Visualizer.plot_hypergraph(
+                        plot_hypergraph(
                             correlation_data,
                             state_type=args["state_type"],
                             noise_type=(
@@ -558,7 +558,7 @@ def interactive_experiment():
                         )
                     else:
                         show_plot_nonblocking(
-                            Visualizer.plot_hypergraph,
+                            plot_hypergraph,
                             correlation_data,
                             state_type=args["state_type"],
                             noise_type=(

@@ -4,6 +4,7 @@ from qiskit.visualization import plot_histogram
 
 import matplotlib.pyplot as plt
 
+
 # Function to create and simulate the quantum communication circuit
 def quantum_communication(eavesdrop=False):
     # Step 1: Create the Bell state (entanglement) shared between Alice and Bob
@@ -24,12 +25,13 @@ def quantum_communication(eavesdrop=False):
     qc.measure(1, 1)
 
     # Step 4: Simulate the circuit
-    backend = Aer.get_backend('qasm_simulator')
+    backend = Aer.get_backend("qasm_simulator")
     job = transpile(qc, backend)
     result = backend.run(job, shots=1024).result()
     counts = result.get_counts()
 
     return counts, qc
+
 
 # Run the simulation without eavesdropping
 counts_ideal, qc_ideal = quantum_communication(eavesdrop=False)
