@@ -36,6 +36,7 @@ from src.visualization import Visualizer
 from src.config.params import apply_defaults, validate_parameters
 from src.config.constants import VALID_NOISE_TYPES, VALID_STATE_TYPES
 from src.config.defaults import DEFAULT_ERROR_RATE
+from src.noise_models.noise_factory import NOISE_CLASSES  # Import NOISE_CLASSES to identify single-qubit noise
 
 # Suppress Qiskit deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -160,12 +161,60 @@ def collect_parameters(interactive: bool = True) -> Dict:
     if interactive:
         console.print("\n[bold blue]🔹 Enter your experiment parameters below:[/bold blue]\n")
 
-        # Noise type with shortcuts and auto-correction
+        # Collect number of qubits first
+        args["num_qubits"] = int(
+            get_input(f"Number of qubits [{args['num_qubits']}]: ", str(args["num_qubits"]))
+        )
+
+        # Collect noise type with shortcuts and auto-correction
         noise_input = get_input(
             f"Enter noise type {VALID_NOISE_TYPES} (d/p/a/z/t/b) [{args['noise_type'].lower()}]: ",
             args["noise_type"].lower(),
         )
-        args["noise_type"] = noise_input
+        # Convert noise type to uppercase immediately for consistency
+        args["noise_type"] = noise_input.upper()
+        # Map shortcuts to full names (e.g., "b" -> "BIT_FLIP")
+        noise_shortcuts = {
+            "d": "DEPOLARIZING",
+            "p": "PHASE_FLIP",
+            "a": "AMPLITUDE_DAMPING",
+            "z": "PHASE_DAMPING",
+            "t": "THERMAL_RELAXATION",
+            "b": "BIT_FLIP",
+        }
+        args["noise_type"] = noise_shortcuts.get(noise_input, args["noise_type"])
+
+        # Check if noise type is single-qubit and num_qubits > 1
+        single_qubit_noise_types = ["AMPLITUDE_DAMPING", "PHASE_DAMPING", "BIT_FLIP"]
+        if args["noise_type"] in single_qubit_noise_types and args["num_qubits"] > 1:
+            console.print(
+                f"[bold yellow]⚠️ Warning: {args['noise_type']} noise is designed for single-qubit systems, "
+                f"but you requested {args['num_qubits']} qubits. This noise will only be applied to "
+                "single-qubit gates ('id', 'u1', 'u2', 'u3').[/bold yellow]"
+            )
+            choice = get_input(
+                "Would you like to proceed with this configuration, switch to a multi-qubit noise type (e.g., DEPOLARIZING), or cancel? (p/switch/c) [p]: ",
+                "p",
+                ["p", "switch", "c"]
+            )
+            if choice == "switch":
+                console.print(
+                    "[bold blue]Suggested multi-qubit noise types: DEPOLARIZING, PHASE_FLIP, THERMAL_RELAXATION[/bold blue]"
+                )
+                new_noise = get_input(
+                    "Enter a new noise type (d/p/t for DEPOLARIZING/PHASE_FLIP/THERMAL_RELAXATION) [depolarizing]: ",
+                    "depolarizing",
+                    ["d", "p", "t", "depolarizing", "phase_flip", "thermal_relaxation"]
+                )
+                args["noise_type"] = (
+                    "DEPOLARIZING" if new_noise in ["d", "depolarizing"]
+                    else "PHASE_FLIP" if new_noise in ["p", "phase_flip"]
+                    else "THERMAL_RELAXATION"
+                )
+                console.print(f"[bold green]Switched noise type to {args['noise_type']}.[/bold green]")
+            elif choice == "c":
+                console.print("[bold yellow]Configuration cancelled. Returning to prompt...[/bold yellow]")
+                return collect_parameters(interactive=True)  # Restart parameter collection
 
         # Visualization selection
         viz_choice = get_input(
@@ -198,9 +247,6 @@ def collect_parameters(interactive: bool = True) -> Dict:
                     args["show_imag"] = real_imag == "i"
 
         # Core parameters
-        args["num_qubits"] = int(
-            get_input(f"Number of qubits [{args['num_qubits']}]: ", str(args["num_qubits"]))
-        )
         args["state_type"] = get_input(
             f"State type {VALID_STATE_TYPES} [{args['state_type'].lower()}]: ",
             args["state_type"].lower(),
@@ -211,13 +257,58 @@ def collect_parameters(interactive: bool = True) -> Dict:
             str(args["noise_enabled"]).lower(),
             ["y", "yes", "t", "true", "n", "no", "f", "false"],
         ) in ["y", "yes", "t", "true"]
+
+        # Collect simulation mode with shortcuts q/d for qasm/density
+        sim_input = get_input(
+            f"Simulation mode (q/qasm, d/density) [{args['sim_mode'].lower()}]: ",
+            args["sim_mode"].lower(),
+            ["q", "d", "qasm", "density"],
+        )
+        args["sim_mode"] = (
+            "qasm" if sim_input in ["q", "qasm"]
+            else "density" if sim_input in ["d", "density"]
+            else args["sim_mode"].lower()
+        )
+
+        # Check if noise type is single-qubit and sim_mode is density with noise enabled
+        if (
+            args["sim_mode"] == "density"
+            and args["noise_type"] in single_qubit_noise_types
+            and args["noise_enabled"]
+        ):
+            console.print(
+                f"[bold yellow]⚠️ Warning: {args['noise_type']} noise only applies to single-qubit gates, which are skipped in density matrix simulation mode. "
+                "No noise will be applied with this configuration.[/bold yellow]"
+            )
+            choice = get_input(
+                "Would you like to proceed with noise disabled, switch to a multi-qubit noise type (e.g., DEPOLARIZING), or cancel? (p/switch/c) [p]: ",
+                "p",
+                ["p", "switch", "c"]
+            )
+            if choice == "switch":
+                console.print(
+                    "[bold blue]Suggested multi-qubit noise types: DEPOLARIZING, PHASE_FLIP, THERMAL_RELAXATION[/bold blue]"
+                )
+                new_noise = get_input(
+                    "Enter a new noise type (d/p/t for DEPOLARIZING/PHASE_FLIP/THERMAL_RELAXATION) [depolarizing]: ",
+                    "depolarizing",
+                    ["d", "p", "t", "depolarizing", "phase_flip", "thermal_relaxation"]
+                )
+                args["noise_type"] = (
+                    "DEPOLARIZING" if new_noise in ["d", "depolarizing"]
+                    else "PHASE_FLIP" if new_noise in ["p", "phase_flip"]
+                    else "THERMAL_RELAXATION"
+                )
+                console.print(f"[bold green]Switched noise type to {args['noise_type']}.[/bold green]")
+            elif choice == "p":
+                args["noise_enabled"] = False  # Disable noise if proceeding
+                console.print("[bold yellow]Noise has been disabled for this configuration.[/bold yellow]")
+            elif choice == "c":
+                console.print("[bold yellow]Configuration cancelled. Returning to prompt...[/bold yellow]")
+                return collect_parameters(interactive=True)  # Restart parameter collection
+
         args["shots"] = int(
             get_input(f"Number of shots [{args['shots']}]: ", str(args["shots"]))
-        )
-        args["sim_mode"] = get_input(
-            f"Simulation mode (qasm/density) [{args['sim_mode'].lower()}]: ",
-            args["sim_mode"].lower(),
-            ["qasm", "density"],
         )
 
         # Optional parameters with confirmation

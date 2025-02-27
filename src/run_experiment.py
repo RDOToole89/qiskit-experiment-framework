@@ -163,8 +163,8 @@ def run_experiment(
         }
     )
     print(f"Compiled circuit: {circuit_compiled}")
-    print(f"Backend supports density_matrix: {backend.configuration().simulator}")
-    print(f"Supported instructions: {backend.operation_names}")
+    # print(f"Backend supports density_matrix: {backend.configuration().simulator}")
+    # print(f"Supported instructions: {backend.operation_names}")
 
     # Run simulation
     start_time = time.time()

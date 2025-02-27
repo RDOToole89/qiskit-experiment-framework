@@ -66,12 +66,19 @@ def validate_parameters(args: Dict) -> Dict:
             console.print("[bold red]⚠️ T1 and T2 must be positive, with T2 <= T1 for realistic relaxation.[/bold red]")
             validated_args["t1"], validated_args["t2"] = None, None
 
-    # Warn about 1-qubit noise limits
+    # Validate compatibility of noise type with density matrix simulation
+    single_qubit_noise_types = ["AMPLITUDE_DAMPING", "PHASE_DAMPING", "BIT_FLIP"]
     if (
-        validated_args["noise_type"] in ["AMPLITUDE_DAMPING", "PHASE_DAMPING", "BIT_FLIP"]
-        and validated_args["num_qubits"] > 1
+        validated_args["sim_mode"] == "density"
+        and validated_args["noise_type"] in single_qubit_noise_types
+        and validated_args["noise_enabled"]
     ):
-        console.print("[bold yellow]⚠️ Note: This noise type applies only to 1-qubit gates, skipping multi-qubit gates (e.g., CNOTs).[/bold yellow]")
+        console.print(
+            f"[bold yellow]⚠️ Warning: {validated_args['noise_type']} noise only applies to single-qubit gates, which are skipped in density matrix simulation mode. "
+            "No noise will be applied with this configuration. Noise will be disabled to proceed. "
+            "Consider using multi-qubit noise types (e.g., DEPOLARIZING, PHASE_FLIP, THERMAL_RELAXATION) for density mode.[/bold yellow]"
+        )
+        validated_args["noise_enabled"] = False
 
     return validated_args
 

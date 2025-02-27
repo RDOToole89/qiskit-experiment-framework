@@ -1,7 +1,8 @@
-# src/quantum_experiment/noise_models/base_noise.py
+# src/noise_models/base_noise.py
 
 from qiskit_aer.noise import NoiseModel
 import logging
+from src.utils import logger as logger_utils
 from typing import Optional
 
 logger = logging.getLogger("QuantumExperiment.NoiseModels")
@@ -18,19 +19,19 @@ class BaseNoise:
         num_qubits (int): Number of qubits affected by the noise.
         experiment_id (str): Unique identifier for the experiment run.
     """
-
     def __init__(self, error_rate: float = DEFAULT_ERROR_RATE, num_qubits: int = 1, experiment_id: str = "N/A"):
         self.error_rate = error_rate
         self.num_qubits = num_qubits
         self.experiment_id = experiment_id
 
-    def apply(self, noise_model: NoiseModel, gate_list: list) -> None:
+    def apply(self, noise_model: NoiseModel, gate_list: list, qubits_for_error: int = None) -> None:
         """
         Applies noise to the specified gates in the noise model.
 
         Args:
             noise_model (NoiseModel): Qiskit noise model to modify.
             gate_list (list): List of gate names (e.g., ['id', 'u1']) to apply noise to.
+            qubits_for_error (int, optional): Number of qubits for the noise error.
 
         Raises:
             NotImplementedError: If the subclass does not implement this method.
@@ -46,11 +47,10 @@ class BaseNoise:
             gates (list): List of gates to which noise was applied.
             extra_info (dict, optional): Additional metadata to include in the log.
         """
-        from src.utils.logger import log_with_experiment_id
         base_info = {"noise_type": noise_type, "gates": gates}
         if extra_info:
             base_info.update(extra_info)
-        log_with_experiment_id(
+        logger_utils.log_with_experiment_id(
             logger, "debug",
             f"Applied {noise_type} noise to {gates}",
             self.experiment_id,

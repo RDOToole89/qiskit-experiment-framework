@@ -5,11 +5,37 @@ import logging
 import json
 from datetime import datetime
 from typing import Optional
+from rich.console import Console
+from rich.text import Text
+
+console = Console()
+
+class RichHandler(logging.Handler):
+    """
+    A custom logging handler that uses rich to render console output with markup.
+    """
+    def __init__(self, level: int = logging.NOTSET):
+        super().__init__(level)
+        self.console = console
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            # Render the message using rich markup
+            text = Text.from_markup(msg)
+            self.console.print(text)
+        except Exception:
+            self.handleError(record)
 
 class StructuredFormatter(logging.Formatter):
     """
     Custom formatter that supports both human-readable logs and structured JSON for analysis.
+    Formats messages with rich markup for console output.
     """
+    def __init__(self, is_rich_handler: bool = False):
+        super().__init__()
+        self.is_rich_handler = is_rich_handler
+
     def format(self, record):
         # Basic log message with timestamp, name, level, and message
         log_entry = {
@@ -25,20 +51,37 @@ class StructuredFormatter(logging.Formatter):
         if hasattr(record, "extra_info"):
             log_entry["extra_info"] = record.extra_info
 
-        # For console: human-readable format
-        if record.levelname in ["INFO", "WARNING"]:
-            return (
-                f"{log_entry['timestamp']} - {log_entry['name']} - {log_entry['level']} - "
-                f"{log_entry['message']} (Experiment ID: {log_entry['experiment_id']})"
-            )
-        # For DEBUG or ERROR: include file and line number
-        elif record.levelname in ["DEBUG", "ERROR"]:
-            return (
-                f"{log_entry['timestamp']} - {log_entry['name']} - {log_entry['level']} - "
-                f"{log_entry['message']} (Experiment ID: {log_entry['experiment_id']}) "
-                f"[{log_entry['filename']}:{log_entry['lineno']}]"
-            )
-        # For structured logging (e.g., to a JSON file)
+        # Define color coding based on log level
+        level_colors = {
+            "INFO": "green",
+            "WARNING": "yellow",
+            "ERROR": "red",
+            "DEBUG": "cyan"
+        }
+        level_color = level_colors.get(record.levelname, "white")
+
+        # For RichHandler (console): return rich markup
+        if self.is_rich_handler:
+            if record.levelname in ["INFO", "WARNING"]:
+                message = (
+                    f"[bold {level_color}]{log_entry['timestamp']} - {log_entry['name']} - "
+                    f"{log_entry['level']} - {log_entry['message']} "
+                    f"(Experiment ID: {log_entry['experiment_id']})[/bold {level_color}]"
+                )
+                if hasattr(record, "extra_info"):
+                    message += f" [dim](Extra: {json.dumps(log_entry['extra_info'])})[/dim]"
+                return message
+            elif record.levelname in ["DEBUG", "ERROR"]:
+                message = (
+                    f"[bold {level_color}]{log_entry['timestamp']} - {log_entry['name']} - "
+                    f"{log_entry['level']} - {log_entry['message']} "
+                    f"(Experiment ID: {log_entry['experiment_id']}) "
+                    f"[{log_entry['filename']}:{log_entry['lineno']}][/bold {level_color}]"
+                )
+                if hasattr(record, "extra_info"):
+                    message += f" [dim](Extra: {json.dumps(log_entry['extra_info'])})[/dim]"
+                return message
+        # For file or structured JSON logging: return JSON
         return json.dumps(log_entry)
 
 def setup_logger(
@@ -70,26 +113,23 @@ def setup_logger(
     logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
     logger.handlers.clear()  # Clear any existing handlers
 
-    # Formatter
-    formatter = StructuredFormatter()
-
     # File handler (human-readable)
     handlers = []
     if log_to_file:
         file_handler = logging.FileHandler(log_filename)
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(StructuredFormatter(is_rich_handler=False))
         handlers.append(file_handler)
 
-    # Console handler
+    # Console handler with rich output
     if log_to_console:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
+        console_handler = RichHandler()
+        console_handler.setFormatter(StructuredFormatter(is_rich_handler=True))
         handlers.append(console_handler)
 
     # Structured JSON handler (optional)
     if structured_log_file:
         structured_handler = logging.FileHandler(structured_log_file)
-        structured_handler.setFormatter(formatter)
+        structured_handler.setFormatter(StructuredFormatter(is_rich_handler=False))
         handlers.append(structured_handler)
 
     # Add handlers to logger

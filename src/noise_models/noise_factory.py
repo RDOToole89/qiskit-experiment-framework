@@ -1,8 +1,10 @@
-# src/quantum_experiment/noise_models/noise_factory.py
+# src/noise_models/noise_factory.py
 
 import logging
 from typing import Optional
 from qiskit_aer.noise import NoiseModel
+from src.utils import logger as logger_utils
+from .base_noise import BaseNoise
 from .depolarizing import DepolarizingNoise
 from .phase_flip import PhaseFlipNoise
 from .amplitude_damping import AmplitudeDampingNoise
@@ -12,7 +14,7 @@ from .bit_flip import BitFlipNoise
 
 logger = logging.getLogger("QuantumExperiment.NoiseModels")
 
-# Example defaults
+# Example defaults (you might want to move these to config if needed)
 DEFAULT_ERROR_RATE = 0.1
 DEFAULT_T1 = 100e-6
 DEFAULT_T2 = 80e-6
@@ -35,7 +37,6 @@ NOISE_CONFIG = {
     "BIT_FLIP": {"error_rate": 0.1},
 }
 
-
 def create_noise_model(
     noise_type: str,
     num_qubits: int,
@@ -45,7 +46,7 @@ def create_noise_model(
     t1: Optional[float] = None,
     t2: Optional[float] = None,
     simulate_density: bool = False,
-    experiment_id: Optional[str] = None
+    experiment_id: str = "N/A"
 ) -> NoiseModel:
     """
     Creates a scalable, configurable noise model for quantum experiments.
@@ -54,17 +55,44 @@ def create_noise_model(
     only multi-qubit (2+ qubit) errors are added—this mimics the old behavior that
     worked in density mode (which only added a "cx" error).
 
-    The optional experiment_id parameter is accepted for logging purposes.
+    Args:
+        noise_type (str): Type of noise to apply.
+        num_qubits (int): Number of qubits in the circuit.
+        error_rate (float, optional): Custom error rate for noise models.
+        z_prob (float, optional): Z probability for PHASE_FLIP noise.
+        i_prob (float, optional): I probability for PHASE_FLIP noise.
+        t1 (float, optional): T1 relaxation time for THERMAL_RELAXATION noise.
+        t2 (float, optional): T2 dephasing time for THERMAL_RELAXATION noise.
+        simulate_density (bool): Whether to simulate density matrix mode.
+        experiment_id (str): Unique identifier for this experiment run.
+
+    Returns:
+        NoiseModel: Configured noise model.
+
+    Raises:
+        ValueError: If the noise type or parameters are invalid.
     """
     if noise_type not in NOISE_CLASSES:
         raise ValueError(
             f"Invalid NOISE_TYPE: {noise_type}. Choose from {list(NOISE_CLASSES.keys())}"
         )
 
+    # Validation: Check compatibility of noise type with number of qubits
+    single_qubit_noise_types = ["AMPLITUDE_DAMPING", "PHASE_DAMPING", "BIT_FLIP"]
+    if noise_type in single_qubit_noise_types and num_qubits > 1 and not simulate_density:
+        logger_utils.log_with_experiment_id(
+            logger, "warning",
+            (f"{noise_type} noise is designed for single-qubit systems, but {num_qubits} qubits were requested. "
+             "This noise will only be applied to single-qubit gates ('id', 'u1', 'u2', 'u3'). "
+             "If you need multi-qubit noise, consider using DEPOLARIZING, PHASE_FLIP, or THERMAL_RELAXATION."),
+            experiment_id,
+            extra_info={"noise_type": noise_type, "num_qubits": num_qubits}
+        )
+
     noise_model = NoiseModel()
     noise_class = NOISE_CLASSES[noise_type]
 
-    # Instantiate the noise object with parameters specific to the noise type.
+    # Instantiate the noise object with parameters specific to the noise type
     if noise_type == "PHASE_FLIP":
         if z_prob is None or i_prob is None:
             z_prob = 0.5
@@ -74,6 +102,7 @@ def create_noise_model(
             num_qubits=num_qubits,
             z_prob=z_prob,
             i_prob=i_prob,
+            experiment_id=experiment_id
         )
     elif noise_type == "THERMAL_RELAXATION":
         noise = noise_class(
@@ -81,39 +110,62 @@ def create_noise_model(
             num_qubits=num_qubits,
             t1=t1 or DEFAULT_T1,
             t2=t2 or DEFAULT_T2,
+            experiment_id=experiment_id
         )
     else:
         noise = noise_class(
             error_rate=error_rate or DEFAULT_ERROR_RATE,
             num_qubits=num_qubits,
+            experiment_id=experiment_id
         )
 
-    # In density mode, avoid applying one-qubit errors which might get composed
-    # with decompositions of multi-qubit gates. (The old working version for density
-    # mode only applied a noise channel for the "cx" instruction.)
-    for qubits in range(1, num_qubits + 1):
-        if simulate_density:
-            if qubits == 2:
-                gate_list = ["cx"]
-            elif qubits > 2:
-                gate_list = [f"mct_{qubits}"]
-            else:
-                # Skip one-qubit noise in density simulation mode.
-                continue
-        else:
-            if qubits == 1:
-                gate_list = ["id", "u1", "u2", "u3"]
-            elif qubits == 2:
-                gate_list = ["cx"]
-            else:
-                gate_list = [f"mct_{qubits}"]
+    # Define gate lists and their corresponding qubit counts
+    gate_configs = []
+    if simulate_density:
+        if num_qubits >= 2:
+            gate_configs.append({"qubits": 2, "gates": ["cx"]})
+        if num_qubits > 2:
+            gate_configs.append({"qubits": num_qubits, "gates": [f"mct_{num_qubits}"]})
+    else:
+        gate_configs.extend([
+            {"qubits": 1, "gates": ["id", "u1", "u2", "u3"]},
+            {"qubits": 2, "gates": ["cx"]},
+            {"qubits": num_qubits, "gates": [f"mct_{num_qubits}"]}
+        ])
+
+    # Apply noise to gates, skipping if the qubit counts don't match
+    for config in gate_configs:
+        qubits = config["qubits"]
+        gate_list = config["gates"]
+
+        # Skip if the noise type is single-qubit but the gate requires more qubits
+        if noise_type in single_qubit_noise_types and qubits > 1:
+            logger_utils.log_with_experiment_id(
+                logger, "info",
+                (f"Skipping {noise_type} noise for {qubits}-qubit gates {gate_list}: "
+                 "This noise type only supports single-qubit gates. "
+                 "Use a multi-qubit noise type like DEPOLARIZING for these gates."),
+                experiment_id,
+                extra_info={"noise_type": noise_type, "qubits": qubits, "gates": gate_list}
+            )
+            continue
 
         try:
-            noise.apply(noise_model, gate_list)
-            logger.info(f"Applied {noise_type} noise to {qubits}-qubit gates: {gate_list}")
+            noise.apply(noise_model, gate_list, qubits_for_error=qubits)
+            logger_utils.log_with_experiment_id(
+                logger, "info",
+                f"Applied {noise_type} noise to {qubits}-qubit gates: {gate_list}",
+                experiment_id,
+                extra_info={"noise_type": noise_type, "qubits": qubits, "gates": gate_list}
+            )
         except Exception as e:
-            logger.warning(
-                f"Failed to apply {noise_type} noise for {qubits}-qubit gates: {gate_list}. Error: {e}"
+            logger_utils.log_with_experiment_id(
+                logger, "warning",
+                (f"Failed to apply {noise_type} noise to {qubits}-qubit gates {gate_list}. "
+                 f"Error: {str(e)}. This may be due to an incompatible qubit count. "
+                 "Ensure the noise type matches the gate's qubit requirements."),
+                experiment_id,
+                extra_info={"noise_type": noise_type, "qubits": qubits, "gates": gate_list, "error": str(e)}
             )
 
     return noise_model

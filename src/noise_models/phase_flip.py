@@ -1,4 +1,4 @@
-# src/quantum_experiment/noise_models/phase_flip.py
+# src/noise_models/phase_flip.py
 
 from qiskit_aer.noise import NoiseModel, pauli_error
 from .base_noise import BaseNoise
@@ -7,13 +7,13 @@ class PhaseFlipNoise(BaseNoise):
     """
     Phase flip noise model, applying a phase flip error to specified gates.
     """
-
     def __init__(self, error_rate: float, num_qubits: int, z_prob: float, i_prob: float, experiment_id: str = "N/A"):
         super().__init__(error_rate=error_rate, num_qubits=num_qubits, experiment_id=experiment_id)
         self.z_prob = z_prob
         self.i_prob = i_prob
 
-    def apply(self, noise_model: NoiseModel, gates: list) -> None:
+    def apply(self, noise_model: NoiseModel, gates: list, qubits_for_error: int = None) -> None:
+        # Phase flip noise is always 1-qubit, so ignore qubits_for_error
         error = pauli_error([("Z", self.z_prob), ("I", self.i_prob)])
         for gate in gates:
             noise_model.add_all_qubit_quantum_error(error, gate)
