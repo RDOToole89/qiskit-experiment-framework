@@ -1,4 +1,4 @@
-# srcstate_preparation/cluster_state.py
+# src/state_preparation/cluster_state.py
 
 from qiskit import QuantumCircuit
 from .base_state import BaseState
