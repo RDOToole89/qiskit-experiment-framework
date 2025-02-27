@@ -1,4 +1,4 @@
-# src/quantum_experiment/noise_models/depolarizing.py
+# src/noise_models/depolarizing.py
 
 import logging
 from qiskit_aer.noise import depolarizing_error, NoiseModel

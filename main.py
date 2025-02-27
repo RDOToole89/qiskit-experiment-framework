@@ -7,9 +7,9 @@ Interactive script to run quantum experiments, designed for extensibility and re
 This script provides an interactive CLI to execute quantum experiments, supporting:
 - Dynamic, case-insensitive parameter selection for states, noise models, and simulation modes.
 - Logging and structured results saving for hypergraph or decoherence analysis.
-- Optional, non-blocking visualization via histograms, density matrices, or hypergraphs, 
+- Optional, non-blocking visualization via histograms, density matrices, or hypergraphs,
   closable with Ctrl+C, with save and filtering options.
-- Extensible architecture for future quantum state/noise additions and research features, 
+- Extensible architecture for future quantum state/noise additions and research features,
   with full rerun support.
 
 Example usage:
@@ -25,6 +25,7 @@ from typing import Optional, Dict
 from qiskit.quantum_info import DensityMatrix
 from src.run_experiment import run_experiment
 from src.utils import ExperimentUtils
+
 from src.visualization import Visualizer
 from src.config import (
     DEFAULT_NUM_QUBITS,

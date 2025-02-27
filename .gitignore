@@ -26,12 +26,3 @@ results/
 *.swp
 .DS_Store
 Thumbs.db
-
-# IDE and editor-specific files
-.vscode/
-.idea/
-
-.vscode/*.code-workspace
-.vscode/history/
-.vscode/workspaceStorage/
-.vscode/User/
