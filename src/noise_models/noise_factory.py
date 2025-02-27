@@ -45,9 +45,14 @@ def create_noise_model(
     i_prob: Optional[float] = None,
     t1: Optional[float] = None,
     t2: Optional[float] = None,
+    simulate_density: bool = False,
 ) -> NoiseModel:
     """
     Creates a scalable, configurable noise model for quantum experiments.
+    
+    When simulate_density is True (e.g. for density matrix simulation),
+    only multi-qubit (2+ qubit) errors are added—this mimics the old behavior that
+    worked in density mode (which only added a "cx" error).
     """
     if noise_type not in NOISE_CLASSES:
         raise ValueError(
@@ -57,7 +62,7 @@ def create_noise_model(
     noise_model = NoiseModel()
     noise_class = NOISE_CLASSES[noise_type]
 
-    # Instantiate the noise
+    # Instantiate the noise object with parameters specific to the noise type.
     if noise_type == "PHASE_FLIP":
         if z_prob is None or i_prob is None:
             z_prob = 0.5
@@ -81,24 +86,32 @@ def create_noise_model(
             num_qubits=num_qubits,
         )
 
-    # Apply noise to appropriate gates
+    # In density mode, avoid applying one-qubit errors which might get composed
+    # with decompositions of multi-qubit gates. (The old working version for density
+    # mode only applied a noise channel for the "cx" instruction.)
     for qubits in range(1, num_qubits + 1):
-        if qubits == 1:
-            gate_list = ["id", "u1", "u2", "u3"]
-        elif qubits == 2:
-            gate_list = ["cx"]
+        if simulate_density:
+            if qubits == 2:
+                gate_list = ["cx"]
+            elif qubits > 2:
+                gate_list = [f"mct_{qubits}"]
+            else:
+                # Skip one-qubit noise in density simulation mode.
+                continue
         else:
-            gate_list = ["cx", f"mct_{qubits}"]
-
-        # For certain noise types, only apply to 1-qubit gates
-        if noise_type in ["DEPOLARIZING", "BIT_FLIP", "PHASE_FLIP", "AMPLITUDE_DAMPING", "PHASE_DAMPING"]:
             if qubits == 1:
-                noise.apply(noise_model, gate_list)
-        elif noise_type == "THERMAL_RELAXATION":
-            noise.apply(noise_model, gate_list)
-        else:
-            logger.warning(f"Skipping {noise_type} noise for {qubits}-qubit gates (not supported).")
+                gate_list = ["id", "u1", "u2", "u3"]
+            elif qubits == 2:
+                gate_list = ["cx"]
+            else:
+                gate_list = [f"mct_{qubits}"]
 
-        logger.info(f"Applied {noise_type} noise to {qubits}-qubit gates: {gate_list}")
+        try:
+            noise.apply(noise_model, gate_list)
+            logger.info(f"Applied {noise_type} noise to {qubits}-qubit gates: {gate_list}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to apply {noise_type} noise for {qubits}-qubit gates: {gate_list}. Error: {e}"
+            )
 
     return noise_model
