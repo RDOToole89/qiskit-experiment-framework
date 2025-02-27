@@ -3,7 +3,6 @@
 import logging
 from typing import Optional
 from qiskit_aer.noise import NoiseModel
-from .base_noise import BaseNoise
 from .depolarizing import DepolarizingNoise
 from .phase_flip import PhaseFlipNoise
 from .amplitude_damping import AmplitudeDampingNoise
@@ -46,13 +45,16 @@ def create_noise_model(
     t1: Optional[float] = None,
     t2: Optional[float] = None,
     simulate_density: bool = False,
+    experiment_id: Optional[str] = None
 ) -> NoiseModel:
     """
     Creates a scalable, configurable noise model for quantum experiments.
-    
+
     When simulate_density is True (e.g. for density matrix simulation),
     only multi-qubit (2+ qubit) errors are added—this mimics the old behavior that
     worked in density mode (which only added a "cx" error).
+
+    The optional experiment_id parameter is accepted for logging purposes.
     """
     if noise_type not in NOISE_CLASSES:
         raise ValueError(

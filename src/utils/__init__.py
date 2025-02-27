@@ -1,4 +1,4 @@
-# src/quantum_experiment/utils/__init__.py
+# src/utils/__init__.py
 
 from .cli import parse_args
 from .logger import setup_logger

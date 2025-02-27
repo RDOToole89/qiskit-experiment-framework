@@ -1,37 +1,20 @@
-# src/noise_models/depolarizing.py
+# src/quantum_experiment/noise_models/depolarizing.py
 
-import logging
-from qiskit_aer.noise import depolarizing_error, NoiseModel
+from qiskit_aer.noise import NoiseModel, depolarizing_error
 from .base_noise import BaseNoise
-
-logger = logging.getLogger("QuantumExperiment.NoiseModels")
-
 
 class DepolarizingNoise(BaseNoise):
     """
-    Depolarizing noise, modeling random bit flips across qubits.
-
-    Scales error rate with qubit count, suitable for studying random decoherence patterns.
+    Depolarizing noise model, applying a depolarizing error to specified gates.
     """
 
-    def apply(self, noise_model: NoiseModel, gate_list: list) -> None:
-        """
-        Applies depolarizing noise correctly based on gate size.
-        """
-        for gate in gate_list:
-            if gate in ["id", "u1", "u2", "u3"]:  # 1-qubit gates
-                noise = depolarizing_error(self.error_rate, 1)
-                noise_model.add_all_qubit_quantum_error(noise, [gate])
-            elif gate == "cx":  # 2-qubit gates
-                noise = depolarizing_error(self.error_rate, 2)
-                noise_model.add_all_qubit_quantum_error(noise, [gate])
-            elif "mct" in gate:  # Multi-controlled Toffoli (3+ qubits)
-                try:
-                    qubit_count = int(gate.split("_")[1])  # e.g., "mct_3"
-                    noise = depolarizing_error(self.error_rate, qubit_count)
-                    noise_model.add_all_qubit_quantum_error(noise, [gate])
-                except (IndexError, ValueError):
-                    logger.warning(f"Skipping unknown gate format: {gate}")
-                    continue
-
-        logger.debug(f"Applied depolarizing noise (rate={self.error_rate}) to {gate_list}")
+    def apply(self, noise_model: NoiseModel, gates: list) -> None:
+        error = depolarizing_error(self.error_rate, self.num_qubits)
+        for gate in gates:
+            noise_model.add_all_qubit_quantum_error(error, gate)
+        # Use the base class logging method
+        self.log_noise_application(
+            noise_type="DEPOLARIZING",
+            gates=gates,
+            extra_info={"error_rate": self.error_rate}
+        )

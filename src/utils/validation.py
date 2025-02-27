@@ -1,5 +1,5 @@
 import numpy as np
-from src.state_preparation import STATE_CLASSES
+from src.state_preparation.state_constants import STATE_CLASSES
 from src.noise_models import NOISE_CLASSES
 
 def validate_inputs(

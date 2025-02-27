@@ -1,3 +1,5 @@
+# src/state_preparation/__init__.py
+
 """
 State preparation package for quantum experiments.
 
@@ -12,7 +14,8 @@ from .base_state import BaseState
 from .ghz_state import GHZState
 from .w_state import WState
 from .cluster_state import ClusterState
-from .state_factory import prepare_state, STATE_CLASSES
+from .state_factory import prepare_state
+from .state_constants import STATE_CLASSES
 
 __all__ = [
     "BaseState",

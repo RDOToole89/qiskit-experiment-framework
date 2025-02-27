@@ -9,10 +9,11 @@ from src.config import (
     DEFAULT_SHOTS,
     DEFAULT_SIM_MODE,
 )
-from src.state_preparation import STATE_CLASSES
-from src.noise_models import NOISE_CLASSES
 
 def parse_args() -> argparse.Namespace:
+   # Import STATE_CLASSES locally to break the circular dependency.
+    from src.state_preparation.state_constants import STATE_CLASSES
+    from src.noise_models import NOISE_CLASSES
     """
     Parses command-line arguments for experiment execution.
     """

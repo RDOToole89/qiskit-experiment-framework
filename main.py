@@ -21,11 +21,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 import warnings
-from typing import Optional, Dict
+import uuid
+from typing import Optional, Dict, Tuple
 from qiskit.quantum_info import DensityMatrix
 from src.run_experiment import run_experiment
-from src.utils import ExperimentUtils
-
+from src.utils import logger, results as ExperimentUtils
 from src.visualization import Visualizer
 from src.config import (
     DEFAULT_NUM_QUBITS,
@@ -52,8 +52,13 @@ NOISE_SHORTCUTS = {
 VALID_NOISE_TYPES = list(NOISE_SHORTCUTS.values())
 VALID_STATE_TYPES = ["GHZ", "W", "CLUSTER"]  # Matches updated state_preparation.py
 
-# Configure logger
-logger = ExperimentUtils.setup_logger()
+# Configure logger with structured output
+logger_instance = logger.setup_logger(
+    log_level="DEBUG",
+    log_to_file=True,
+    log_to_console=True,
+    structured_log_file="logs/structured_logs.json"
+)
 
 
 def get_input(prompt: str, default: str, valid_options: Optional[list] = None) -> str:
@@ -122,9 +127,7 @@ def show_plot_nonblocking(visualizer_method, *args, **kwargs):
     plt.draw()  # Draw the plot
     plt.pause(0.1)  # Brief pause to show plot
     try:
-        input(
-            "Press Enter or Ctrl+C to continue..."
-        )  # Wait for user input or interrupt
+        input("Press Enter or Ctrl+C to continue...")  # Wait for user input or interrupt
     except KeyboardInterrupt:
         plt.close()  # Close plot on Ctrl+C
         print("\nPlot closed with Ctrl+C, returning to prompt...")
@@ -351,9 +354,19 @@ def interactive_experiment():
             continue
 
         # Run experiment
-        logger.info(
-            f"Starting experiment with {args['num_qubits']} qubits, {args['state_type']} state, "
-            f"{'with' if args['noise_enabled'] else 'without'} {args['noise_type']} noise."
+        experiment_id = str(uuid.uuid4())
+        logger.log_with_experiment_id(
+            logger_instance, "info",
+            (f"Starting experiment with {args['num_qubits']} qubits, {args['state_type']} state, "
+             f"{'with' if args['noise_enabled'] else 'without'} {args['noise_type']} noise"),
+            experiment_id,
+            extra_info={
+                "num_qubits": args["num_qubits"],
+                "state_type": args["state_type"],
+                "noise_type": args["noise_type"],
+                "noise_enabled": args["noise_enabled"],
+                "sim_mode": args["sim_mode"]
+            }
         )
 
         args_for_experiment = {
@@ -368,11 +381,13 @@ def interactive_experiment():
                 "show_imag",
             ]
         }
+        args_for_experiment["experiment_id"] = experiment_id
 
         try:
-            result = run_experiment(**args_for_experiment)
+            # run_experiment now returns both the circuit and result
+            qc, result = run_experiment(**args_for_experiment)
         except Exception as e:
-            logger.error(f"Experiment failed: {str(e)}")
+            logger.log_with_experiment_id(logger_instance, "error", f"Experiment failed: {str(e)}", experiment_id)
             print(f"⚠️ Experiment failed: {str(e)}")
             continue
 
@@ -380,12 +395,10 @@ def interactive_experiment():
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = (
             f"results/experiment_results_{args['num_qubits']}q_{args['state_type']}_"
-            f"{args['noise_type']}_{args['sim_mode']}_{timestamp}.{'json' if args['sim_mode'] == 'qasm' else 'npy'}"
+            f"{args['noise_type']}_{args['sim_mode']}_{timestamp}.json"
         )
-        ExperimentUtils.save_results(result, filename)
-        print(
-            f"\n✅ Experiment completed successfully!\n📁 Results saved in `{filename}`"
-        )
+        ExperimentUtils.save_results(result, circuit=qc, experiment_params=args_for_experiment, filename=filename, experiment_id=experiment_id)
+        print(f"\n✅ Experiment completed successfully!\n📁 Results saved in `{filename}`")
 
         # Handle visualization non-blockingly
         if args["visualization_type"] == "plot":
@@ -469,22 +482,35 @@ def interactive_experiment():
             )
             if next_choice == "r":
                 print("\n🔁 Rerunning with same parameters...\n")
+                logger.log_with_experiment_id(
+                    logger_instance, "info",
+                    f"Rerunning experiment with {args['num_qubits']} qubits, {args['state_type']} state, "
+                    f"{'with' if args['noise_enabled'] else 'without'} {args['noise_type']} noise",
+                    experiment_id,
+                    extra_info={
+                        "num_qubits": args["num_qubits"],
+                        "state_type": args["state_type"],
+                        "noise_type": args["noise_type"],
+                        "noise_enabled": args["noise_enabled"],
+                        "sim_mode": args["sim_mode"]
+                    }
+                )
+
                 try:
-                    result = run_experiment(**args_for_experiment)
+                    qc, result = run_experiment(**args_for_experiment)
                 except Exception as e:
-                    logger.error(f"Rerun failed: {str(e)}")
+                    logger.log_with_experiment_id(logger_instance, "error", f"Rerun failed: {str(e)}", experiment_id)
                     print(f"⚠️ Rerun failed: {str(e)}")
                     continue
+
                 # Save rerun results with a suffix
                 rerun_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 rerun_filename = (
                     f"results/experiment_results_{args['num_qubits']}q_{args['state_type']}_"
-                    f"{args['noise_type']}_{args['sim_mode']}_{rerun_timestamp}_rerun.{'json' if args['sim_mode'] == 'qasm' else 'npy'}"
+                    f"{args['noise_type']}_{args['sim_mode']}_{rerun_timestamp}_rerun.json"
                 )
-                ExperimentUtils.save_results(result, rerun_filename)
-                print(
-                    f"\n✅ Rerun completed successfully!\n📁 Results saved in `{rerun_filename}`"
-                )
+                ExperimentUtils.save_results(result, circuit=qc, experiment_params=args_for_experiment, filename=rerun_filename, experiment_id=experiment_id)
+                print(f"\n✅ Rerun completed successfully!\n📁 Results saved in `{rerun_filename}`")
 
                 # Handle visualization for rerun
                 if args["visualization_type"] == "plot":
@@ -569,7 +595,7 @@ def interactive_experiment():
                 continue  # Back to rerun prompt
             elif next_choice == "n":
                 print("\n🆕 Restarting parameter selection...\n")
-                return interactive_experiment()
+                break  # Exit inner loop to restart parameter selection
             else:  # 'q'
                 print("\n👋 Exiting Quantum Experiment Runner. Goodbye!")
                 return

@@ -1,25 +1,22 @@
-# src/quantum_experiment/state_preparation/w_state.py
+# src/state_preparation/w_state.py
 
 from qiskit import QuantumCircuit
 import numpy as np
 from .base_state import BaseState
-import logging
-
-logger = logging.getLogger("QuantumExperiment.StatePreparation")
 
 class WState(BaseState):
     """
-    W state preparation (|100…⟩ + |010…⟩ + …)/√N, modeling distributed entanglement.
-    Requires at least 2 qubits.
+    W state preparation (e.g., (|100⟩ + |010⟩ + |001⟩)/√3 for 3 qubits).
     """
 
-    def create(self) -> QuantumCircuit:
-        if self.num_qubits < 2:
-            raise ValueError("W state requires at least 2 qubits for meaningful entanglement.")
+    def create(self, add_barrier: bool = False, experiment_id: str = "N/A") -> QuantumCircuit:
         qc = QuantumCircuit(self.num_qubits)
+        # Initialize W-state
         w_state = np.zeros(2**self.num_qubits, dtype=complex)
         for i in range(self.num_qubits):
             w_state[1 << i] = 1 / np.sqrt(self.num_qubits)
         qc.initialize(w_state, range(self.num_qubits))
-        logger.debug(f"Created {self.num_qubits}-qubit W state.")
+        if add_barrier:
+            qc.barrier()
+        self.log_state_creation(state_type="W")
         return qc
