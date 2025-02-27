@@ -23,10 +23,10 @@ import json
 import warnings
 from typing import Optional, Dict
 from qiskit.quantum_info import DensityMatrix
-from quantum_experiment.run_experiment import run_experiment
-from quantum_experiment.utils import ExperimentUtils
-from quantum_experiment.visualization import Visualizer
-from quantum_experiment.config import (
+from src.run_experiment import run_experiment
+from src.utils import ExperimentUtils
+from src.visualization import Visualizer
+from src.config import (
     DEFAULT_NUM_QUBITS,
     DEFAULT_STATE_TYPE,
     DEFAULT_NOISE_TYPE,

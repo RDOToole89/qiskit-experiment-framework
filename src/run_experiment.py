@@ -33,8 +33,8 @@ from qiskit_aer import Aer, AerSimulator
 from qiskit.quantum_info import DensityMatrix, Statevector
 from typing import Optional, Dict, Union
 import logging
-from quantum_experiment.state_preparation import prepare_state
-from quantum_experiment.noise_models import create_noise_model
+from src.state_preparation import prepare_state
+from src.noise_models import create_noise_model
 
 # Configure logger for experiment-specific debugging
 logger = logging.getLogger("QuantumExperiment.RunExperiment")

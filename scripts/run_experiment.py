@@ -24,9 +24,9 @@ import numpy as np
 import warnings
 from typing import Optional
 from qiskit.quantum_info import DensityMatrix
-from quantum_experiment.run_experiment import run_experiment
-from quantum_experiment.utils import ExperimentUtils
-from quantum_experiment.visualization import Visualizer
+from src.run_experiment import run_experiment
+from src.utils import ExperimentUtils
+from src.visualization import Visualizer
 
 # Suppress Qiskit deprecation warnings for cleaner logs
 warnings.filterwarnings("ignore", category=DeprecationWarning)

@@ -29,7 +29,7 @@ from datetime import datetime
 import numpy as np
 from qiskit.quantum_info import DensityMatrix
 from typing import Optional, Dict, Union, Any
-from quantum_experiment.config import (
+from src.config import (
     DEFAULT_NUM_QUBITS,
     DEFAULT_STATE_TYPE,
     DEFAULT_NOISE_TYPE,
@@ -37,8 +37,8 @@ from quantum_experiment.config import (
     DEFAULT_SHOTS,
     DEFAULT_SIM_MODE,
 )
-from quantum_experiment.noise_models import NOISE_CLASSES
-from quantum_experiment.state_preparation import STATE_CLASSES
+from src.noise_models import NOISE_CLASSES
+from src.state_preparation import STATE_CLASSES
 
 # Configure logger for utility-specific debugging
 logger = logging.getLogger("QuantumExperiment.Utils")

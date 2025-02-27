@@ -1,5 +1,5 @@
-from quantum_experiment.run_experiment import run_experiment
-from quantum_experiment.visualization import plot_histogram, plot_density_matrix
+from src.run_experiment import run_experiment
+from src.visualization import plot_histogram, plot_density_matrix
 import sys
 
 num_qubits = int(sys.argv[1]) if len(sys.argv) > 1 else 3
