@@ -232,19 +232,53 @@ def collect_parameters(interactive: bool = True) -> Dict:
                 get_input("Enter path to save plot (press Enter for display): ", "").strip()
                 or None
             )
-            if args["visualization_type"] == "plot":
-                if args["sim_mode"] == "qasm":
-                    args["min_occurrences"] = int(
-                        get_input(f"Minimum occurrences [0]: ", "0") or 0
+
+        # Check for hypergraph visualization compatibility: Single-qubit noise with multi-qubit states
+        if args["visualization_type"] == "hypergraph":
+            if args["noise_type"] in single_qubit_noise_types and args["num_qubits"] > 1:
+                console.print(
+                    f"[bold yellow]⚠️ Warning: {args['noise_type']} noise with {args['num_qubits']} qubits may not be meaningful for hypergraph visualization. "
+                    "Single-qubit noise only applies to single-qubit gates and won't affect multi-qubit correlations (e.g., entanglement between qubits). "
+                    f"The hypergraph may only show the ideal correlations of the state without noise impact.[/bold yellow]"
+                )
+                choice = get_input(
+                    "Would you like to proceed with this configuration, switch to a multi-qubit noise type (e.g., DEPOLARIZING), or change visualization type? (p/switch/v) [p]: ",
+                    "p",
+                    ["p", "switch", "v"]
+                )
+                if choice == "switch":
+                    console.print(
+                        "[bold blue]Suggested multi-qubit noise types: DEPOLARIZING, PHASE_FLIP, THERMAL_RELAXATION[/bold blue]"
                     )
-                else:  # density mode
-                    real_imag = get_input(
-                        "Show real (r), imaginary (i), or absolute (a) values? [a]: ",
-                        "a",
-                        ["r", "i", "a"],
+                    new_noise = get_input(
+                        "Enter a new noise type (d/p/t for DEPOLARIZING/PHASE_FLIP/THERMAL_RELAXATION) [depolarizing]: ",
+                        "depolarizing",
+                        ["d", "p", "t", "depolarizing", "phase_flip", "thermal_relaxation"]
                     )
-                    args["show_real"] = real_imag == "r"
-                    args["show_imag"] = real_imag == "i"
+                    args["noise_type"] = (
+                        "DEPOLARIZING" if new_noise in ["d", "depolarizing"]
+                        else "PHASE_FLIP" if new_noise in ["p", "phase_flip"]
+                        else "THERMAL_RELAXATION"
+                    )
+                    console.print(f"[bold green]Switched noise type to {args['noise_type']}.[/bold green]")
+                elif choice == "v":
+                    console.print("[bold blue]Switching visualization type to 'plot' (histogram/density matrix).[/bold blue]")
+                    args["visualization_type"] = "plot"
+
+        # Set visualization-specific settings after any potential switch
+        if args["visualization_type"] == "plot":
+            if args["sim_mode"] == "qasm":
+                args["min_occurrences"] = int(
+                    get_input(f"Minimum occurrences [0]: ", "0") or 0
+                )
+            else:  # density mode
+                real_imag = get_input(
+                    "Show real (r), imaginary (i), or absolute (a) values? [a]: ",
+                    "a",
+                    ["r", "i", "a"],
+                )
+                args["show_real"] = real_imag == "r"
+                args["show_imag"] = real_imag == "i"
 
         # Core parameters
         args["state_type"] = get_input(
@@ -306,6 +340,31 @@ def collect_parameters(interactive: bool = True) -> Dict:
             elif choice == "c":
                 console.print("[bold yellow]Configuration cancelled. Returning to prompt...[/bold yellow]")
                 return collect_parameters(interactive=True)  # Restart parameter collection
+
+        # Check for hypergraph visualization compatibility: Density mode with no noise
+        if args["visualization_type"] == "hypergraph" and args["sim_mode"] == "density" and not args["noise_enabled"]:
+            console.print(
+                f"[bold yellow]⚠️ Warning: Hypergraph visualization in density matrix simulation mode with no noise enabled may not be insightful. "
+                f"The hypergraph will only show the ideal correlations of the {args['state_type']} state without noise effects.[/bold yellow]"
+            )
+            choice = get_input(
+                "Would you like to proceed with this configuration, enable noise, or change visualization type? (p/e/v) [p]: ",
+                "p",
+                ["p", "e", "v"]
+            )
+            if choice == "e":
+                args["noise_enabled"] = True
+                console.print("[bold green]Noise has been enabled for this configuration.[/bold green]")
+            elif choice == "v":
+                console.print("[bold blue]Switching visualization type to 'plot' (density matrix).[/bold blue]")
+                args["visualization_type"] = "plot"
+                real_imag = get_input(
+                    "Show real (r), imaginary (i), or absolute (a) values? [a]: ",
+                    "a",
+                    ["r", "i", "a"],
+                )
+                args["show_real"] = real_imag == "r"
+                args["show_imag"] = real_imag == "i"
 
         args["shots"] = int(
             get_input(f"Number of shots [{args['shots']}]: ", str(args["shots"]))
@@ -387,6 +446,9 @@ def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, U
     ExperimentUtils.save_results(result, circuit=qc, experiment_params=args_for_experiment, filename=filename, experiment_id=experiment_id)
     console.print(f"\n[bold green]✅ Experiment completed successfully![/bold green]\n📁 Results saved in `{filename}`")
 
+    # Debug log to confirm visualization type
+    console.print(f"[bold blue]Debug: Visualization type is {args['visualization_type']}[/bold blue]")
+
     # Handle visualization non-blockingly
     plot_closed_with_ctrl_c = False
     if args["visualization_type"] == "plot":
@@ -399,6 +461,7 @@ def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, U
                     noise_enabled=args["noise_enabled"],
                     save_path=args["save_plot"],
                     min_occurrences=args["min_occurrences"],
+                    num_qubits=args["num_qubits"],
                 )
             else:
                 plot_closed_with_ctrl_c = not show_plot_nonblocking(
@@ -408,6 +471,7 @@ def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, U
                     noise_type=args["noise_type"] if args["noise_enabled"] else None,
                     noise_enabled=args["noise_enabled"],
                     min_occurrences=args["min_occurrences"],
+                    num_qubits=args["num_qubits"],
                 )
         else:
             args["show_real"] = args.get("show_real", False)
@@ -419,6 +483,8 @@ def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, U
                     show_real=args["show_real"],
                     show_imag=args["show_imag"],
                     save_path=args["save_plot"],
+                    state_type=args["state_type"],
+                    noise_type=args["noise_type"] if args["noise_enabled"] else None,
                 )
             else:
                 plot_closed_with_ctrl_c = not show_plot_nonblocking(
@@ -427,6 +493,8 @@ def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, U
                     cmap="viridis",
                     show_real=args["show_real"],
                     show_imag=args["show_imag"],
+                    state_type=args["state_type"],
+                    noise_type=args["noise_type"] if args["noise_enabled"] else None,
                 )
     elif args["visualization_type"] == "hypergraph":
         correlation_data = (

@@ -77,18 +77,6 @@ def create_noise_model(
             f"Invalid NOISE_TYPE: {noise_type}. Choose from {list(NOISE_CLASSES.keys())}"
         )
 
-    # Validation: Check compatibility of noise type with number of qubits
-    single_qubit_noise_types = ["AMPLITUDE_DAMPING", "PHASE_DAMPING", "BIT_FLIP"]
-    if noise_type in single_qubit_noise_types and num_qubits > 1 and not simulate_density:
-        logger_utils.log_with_experiment_id(
-            logger, "warning",
-            (f"{noise_type} noise is designed for single-qubit systems, but {num_qubits} qubits were requested. "
-             "This noise will only be applied to single-qubit gates ('id', 'u1', 'u2', 'u3'). "
-             "If you need multi-qubit noise, consider using DEPOLARIZING, PHASE_FLIP, or THERMAL_RELAXATION."),
-            experiment_id,
-            extra_info={"noise_type": noise_type, "num_qubits": num_qubits}
-        )
-
     noise_model = NoiseModel()
     noise_class = NOISE_CLASSES[noise_type]
 
@@ -139,6 +127,7 @@ def create_noise_model(
         gate_list = config["gates"]
 
         # Skip if the noise type is single-qubit but the gate requires more qubits
+        single_qubit_noise_types = ["AMPLITUDE_DAMPING", "PHASE_DAMPING", "BIT_FLIP"]
         if noise_type in single_qubit_noise_types and qubits > 1:
             logger_utils.log_with_experiment_id(
                 logger, "info",
