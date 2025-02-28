@@ -32,7 +32,8 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import DensityMatrix
 from src.run_experiment import run_experiment
 from src.utils import logger, results as ExperimentUtils
-from src.visualization import Visualizer
+from src.utils.input_handler import InputHandler
+from src.visualization.visualization_handler import handle_visualization
 from src.config.params import apply_defaults, validate_parameters
 from src.config.constants import (
     VALID_NOISE_TYPES,
@@ -55,8 +56,9 @@ logger_instance = logger.setup_logger(
     structured_log_file="logs/structured_logs.json",
 )
 
-# Initialize Rich console for better formatting
+# Initialize Rich console and input handler
 console = Console()
+input_handler = InputHandler(console, MESSAGES)
 
 
 def print_message(key: str, **kwargs) -> None:
@@ -71,111 +73,34 @@ def print_message(key: str, **kwargs) -> None:
     console.print(message.format(**kwargs))
 
 
-def get_input(
-    prompt_key: str,
-    default: str,
-    valid_options: Optional[list] = None,
-    valid_options_display: Optional[list] = None,
-    **kwargs,
-) -> str:
+def show_plot_nonblocking(visualizer_method, *args, **kwargs) -> bool:
     """
-    Helper to get user input with case-insensitive handling and validation, using messages from MESSAGES.
+    Displays a plot non-blockingly, allowing Ctrl+C to close and return to prompt.
 
     Args:
-        prompt_key (str): The key for the prompt message in MESSAGES.
-        default (str): Default value if user presses Enter.
-        valid_options (list, optional): List of valid options for validation.
-        valid_options_display (list, optional): List of options to display in the prompt (defaults to valid_options).
-        **kwargs: Additional values to format the prompt message with.
+        visualizer_method: Visualizer method (e.g., Visualizer.plot_histogram).
+        *args: Positional arguments for the method.
+        **kwargs: Keyword arguments for the method.
 
     Returns:
-        str: User input or default, normalized to lowercase.
+        bool: True if closed with Enter, False if closed with Ctrl+C.
     """
-    while True:
-        try:
-            prompt = MESSAGES.get(
-                prompt_key, f"[bold red]Missing prompt for key: {prompt_key}[/bold red]"
-            )
-            # Only include valid_options in kwargs if it's provided and needed
-            format_kwargs = {"default": default}
-            if valid_options is not None:
-                format_kwargs["valid_options"] = (
-                    valid_options_display
-                    if valid_options_display is not None
-                    else valid_options
-                )
-            format_kwargs.update(kwargs)
-            user_input = (
-                console.input(prompt.format(**format_kwargs)).strip().lower()
-                or default.lower()
-            )
-            if not valid_options or user_input in [
-                opt.lower() for opt in valid_options
-            ]:
-                return user_input
-            print_message("invalid_input", input=user_input, options=valid_options)
-        except KeyboardInterrupt:
-            print_message("operation_cancelled")
-            return default.lower()
-
-
-def get_numeric_input(
-    prompt_key: str, default: str, expected_type: type = int
-) -> Union[int, float]:
-    """
-    Prompts the user for a numeric input, handling errors gracefully.
-
-    Args:
-        prompt_key (str): The key for the prompt message in MESSAGES.
-        default (str): Default value as a string.
-        expected_type (type): Expected type (int or float).
-
-    Returns:
-        Union[int, float]: The numeric value.
-    """
-    while True:
-        try:
-            value = get_input(prompt_key, default)
-            return expected_type(value)
-        except ValueError:
-            print_message(
-                "invalid_input", input=value, options=[expected_type.__name__]
-            )
-            return collect_parameters(interactive=True)
-
-
-def prompt_yes_no(key: str, default: str = "n") -> bool:
-    """
-    Prompts the user for a yes/no answer using messages from MESSAGES.
-
-    Args:
-        key (str): The key for the prompt message in MESSAGES.
-        default (str): Default value ("y" or "n").
-
-    Returns:
-        bool: True if yes, False if no.
-    """
-    return get_input(key, default, ["y", "n"]) == "y"
-
-
-def switch_to_plot(args: Dict) -> Dict:
-    """
-    Switches the visualization type to 'plot' and collects related settings.
-
-    Args:
-        args (Dict): Current parameters.
-
-    Returns:
-        Dict: Updated parameters with visualization type set to 'plot' and related settings.
-    """
-    args["visualization_type"] = "plot"
-    if args["sim_mode"] == "qasm":
-        args["min_occurrences"] = get_numeric_input("min_occurrences_prompt", "0")
-    else:  # density mode
-        real_imag = get_input("real_imag_prompt", "a", ["r", "i", "a"])
-        args["show_real"] = real_imag == "r"
-        args["show_imag"] = real_imag == "i"
-    return args
+    plt.ion()  # Enable interactive mode
+    visualizer_method(*args, **kwargs)
+    plt.draw()  # Draw the plot
+    plt.pause(0.1)  # Brief pause to show plot
+    try:
+        input(
+            "Press Enter or Ctrl+C to continue..."
+        )  # Wait for user input or interrupt
+        plt.close()  # Close plot
+        return True  # Closed with Enter
+    except KeyboardInterrupt:
+        plt.close()  # Close plot on Ctrl+C
+        print_message("plot_closed_ctrl_c")
+        return False  # Closed with Ctrl+C
+    finally:
+        plt.ioff()  # Disable interactive mode after closing
 
 
 def format_params(args: Dict) -> str:
@@ -236,34 +161,26 @@ def display_params_summary(args: Dict) -> None:
     console.print(table)
 
 
-def show_plot_nonblocking(visualizer_method, *args, **kwargs) -> bool:
+def switch_to_plot(args: Dict) -> Dict:
     """
-    Displays a plot non-blockingly, allowing Ctrl+C to close and return to prompt.
+    Switches the visualization type to 'plot' and collects related settings.
 
     Args:
-        visualizer_method: Visualizer method (e.g., Visualizer.plot_histogram).
-        *args: Positional arguments for the method.
-        **kwargs: Keyword arguments for the method.
+        args (Dict): Current parameters.
 
     Returns:
-        bool: True if closed with Enter, False if closed with Ctrl+C.
+        Dict: Updated parameters with visualization type set to 'plot' and related settings.
     """
-    plt.ion()  # Enable interactive mode
-    visualizer_method(*args, **kwargs)
-    plt.draw()  # Draw the plot
-    plt.pause(0.1)  # Brief pause to show plot
-    try:
-        input(
-            "Press Enter or Ctrl+C to continue..."
-        )  # Wait for user input or interrupt
-        plt.close()  # Close plot
-        return True  # Closed with Enter
-    except KeyboardInterrupt:
-        plt.close()  # Close plot on Ctrl+C
-        print_message("plot_closed_ctrl_c")
-        return False  # Closed with Ctrl+C
-    finally:
-        plt.ioff()  # Disable interactive mode after closing
+    args["visualization_type"] = "plot"
+    if args["sim_mode"] == "qasm":
+        args["min_occurrences"] = input_handler.get_numeric_input(
+            "min_occurrences_prompt", "0"
+        )
+    else:  # density mode
+        real_imag = input_handler.get_input("real_imag_prompt", "a", ["r", "i", "a"])
+        args["show_real"] = real_imag == "r"
+        args["show_imag"] = real_imag == "i"
+    return args
 
 
 def collect_core_parameters(args: Dict) -> Dict:
@@ -279,10 +196,15 @@ def collect_core_parameters(args: Dict) -> Dict:
     print_message("enter_parameters")
 
     # Collect number of qubits
-    args["num_qubits"] = get_numeric_input("num_qubits_prompt", str(args["num_qubits"]))
+    try:
+        args["num_qubits"] = input_handler.get_numeric_input(
+            "num_qubits_prompt", str(args["num_qubits"])
+        )
+    except ValueError:
+        return collect_parameters(interactive=True)
 
     # Collect noise type with shortcuts and auto-correction
-    noise_input = get_input(
+    noise_input = input_handler.get_input(
         "noise_type_prompt",
         default=args["noise_type"].lower(),
         valid_options=VALID_NOISE_TYPES + ["d", "p", "a", "z", "t", "b"],
@@ -292,21 +214,21 @@ def collect_core_parameters(args: Dict) -> Dict:
     args["noise_type"] = NOISE_SHORTCUTS.get(noise_input, args["noise_type"])
 
     # Collect state type
-    args["state_type"] = get_input(
+    args["state_type"] = input_handler.get_input(
         "state_type_prompt",
         default=args["state_type"].lower(),
         valid_options=VALID_STATE_TYPES,
     ).upper()
 
     # Collect noise enabled
-    args["noise_enabled"] = get_input(
+    args["noise_enabled"] = input_handler.get_input(
         "noise_enabled_prompt",
         default=str(args["noise_enabled"]).lower(),
         valid_options=["y", "yes", "t", "true", "n", "no", "f", "false"],
     ) in ["y", "yes", "t", "true"]
 
     # Collect simulation mode
-    args["sim_mode"] = get_input(
+    args["sim_mode"] = input_handler.get_input(
         "sim_mode_prompt",
         default=args["sim_mode"].lower(),
         valid_options=["q", "d", "qasm", "density"],
@@ -322,7 +244,12 @@ def collect_core_parameters(args: Dict) -> Dict:
     )
 
     # Collect shots
-    args["shots"] = get_numeric_input("shots_prompt", str(args["shots"]))
+    try:
+        args["shots"] = input_handler.get_numeric_input(
+            "shots_prompt", str(args["shots"])
+        )
+    except ValueError:
+        return collect_parameters(interactive=True)
 
     return args
 
@@ -338,7 +265,7 @@ def collect_visualization_settings(args: Dict) -> Dict:
         Dict: Updated parameters with visualization settings.
     """
     # Visualization selection
-    viz_choice = get_input(
+    viz_choice = input_handler.get_input(
         "viz_type_prompt",
         default="n",
         valid_options=["p", "h", "n"],
@@ -349,9 +276,16 @@ def collect_visualization_settings(args: Dict) -> Dict:
         else "hypergraph" if viz_choice in ["h", "hypergraph"] else "none"
     )
     if args["visualization_type"] != "none":
-        args["save_plot"] = get_input("save_plot_prompt", default="").strip() or None
+        args["save_plot"] = (
+            input_handler.get_input("save_plot_prompt", default="").strip() or None
+        )
         if args["visualization_type"] == "plot" and args["sim_mode"] == "qasm":
-            args["min_occurrences"] = get_numeric_input("min_occurrences_prompt", "0")
+            try:
+                args["min_occurrences"] = input_handler.get_numeric_input(
+                    "min_occurrences_prompt", "0"
+                )
+            except ValueError:
+                return collect_parameters(interactive=True)
 
     return args
 
@@ -367,29 +301,41 @@ def collect_optional_parameters(args: Dict) -> Dict:
         Dict: Updated parameters with optional settings.
     """
     # Optional parameters with confirmation
-    if prompt_yes_no("custom_error_rate_prompt", default="n"):
-        args["error_rate"] = get_numeric_input(
+    if input_handler.prompt_yes_no("custom_error_rate_prompt", default="n"):
+        args["error_rate"] = input_handler.get_numeric_input(
             "error_rate_value_prompt", str(DEFAULT_ERROR_RATE), float
         )
-    if args["noise_type"] == "PHASE_FLIP" and prompt_yes_no(
+    if args["noise_type"] == "PHASE_FLIP" and input_handler.prompt_yes_no(
         "custom_zi_probs_prompt", default="n"
     ):
-        args["z_prob"] = get_numeric_input("z_prob_value_prompt", "0.5", float)
-        args["i_prob"] = get_numeric_input("i_prob_value_prompt", "0.5", float)
-    if args["noise_type"] == "THERMAL_RELAXATION" and prompt_yes_no(
+        args["z_prob"] = input_handler.get_numeric_input(
+            "z_prob_value_prompt", "0.5", float
+        )
+        args["i_prob"] = input_handler.get_numeric_input(
+            "i_prob_value_prompt", "0.5", float
+        )
+    if args["noise_type"] == "THERMAL_RELAXATION" and input_handler.prompt_yes_no(
         "custom_t1t2_prompt", default="n"
     ):
-        args["t1"] = get_numeric_input("t1_value_prompt", "100", float) * 1e-6
-        args["t2"] = get_numeric_input("t2_value_prompt", "80", float) * 1e-6
-    if args["state_type"] == "CLUSTER" and prompt_yes_no(
+        args["t1"] = (
+            input_handler.get_numeric_input("t1_value_prompt", "100", float) * 1e-6
+        )
+        args["t2"] = (
+            input_handler.get_numeric_input("t2_value_prompt", "80", float) * 1e-6
+        )
+    if args["state_type"] == "CLUSTER" and input_handler.prompt_yes_no(
         "custom_lattice_prompt", default="n"
     ):
         if "custom_params" not in args:
             args["custom_params"] = {}
-        lattice_type = get_input("lattice_type_prompt", "1d", ["1d", "2d"])
+        lattice_type = input_handler.get_input(
+            "lattice_type_prompt", "1d", ["1d", "2d"]
+        )
         args["custom_params"]["lattice"] = lattice_type
-    if prompt_yes_no("custom_params_prompt", default="n"):
-        custom_params_str = get_input("custom_params_value_prompt", default="").strip()
+    if input_handler.prompt_yes_no("custom_params_prompt", default="n"):
+        custom_params_str = input_handler.get_input(
+            "custom_params_value_prompt", default=""
+        ).strip()
         try:
             args["custom_params"] = (
                 json.loads(custom_params_str) if custom_params_str else None
@@ -403,6 +349,9 @@ def collect_optional_parameters(args: Dict) -> Dict:
     return args
 
 
+# src/main.py (only showing the updated validate_and_prompt function)
+
+
 def validate_and_prompt(args: Dict) -> Dict:
     """
     Validates parameters and prompts the user for adjustments if needed.
@@ -414,16 +363,14 @@ def validate_and_prompt(args: Dict) -> Dict:
         Dict: Updated parameters after validation and prompting.
     """
     # Check if noise type is single-qubit and num_qubits > 1
+    # Warning is now handled by validate_parameters, so we just prompt for action
     if args["noise_type"] in SINGLE_QUBIT_NOISE_TYPES and args["num_qubits"] > 1:
-        print_message(
-            "single_qubit_noise_warning",
-            noise_type=args["noise_type"],
-            num_qubits=args["num_qubits"],
+        choice = input_handler.get_input(
+            "single_qubit_noise_prompt", "p", ["p", "switch", "c"]
         )
-        choice = get_input("single_qubit_noise_prompt", "p", ["p", "switch", "c"])
         if choice == "switch":
             print_message("suggested_multi_qubit_noise_types")
-            new_noise = get_input(
+            new_noise = input_handler.get_input(
                 "noise_type_prompt",
                 "depolarizing",
                 valid_options=[
@@ -457,12 +404,12 @@ def validate_and_prompt(args: Dict) -> Dict:
                 noise_type=args["noise_type"],
                 num_qubits=args["num_qubits"],
             )
-            choice = get_input(
+            choice = input_handler.get_input(
                 "hypergraph_single_qubit_prompt", "p", ["p", "switch", "v"]
             )
             if choice == "switch":
                 print_message("suggested_multi_qubit_noise_types")
-                new_noise = get_input(
+                new_noise = input_handler.get_input(
                     "noise_type_prompt",
                     "depolarizing",
                     valid_options=[
@@ -493,16 +440,18 @@ def validate_and_prompt(args: Dict) -> Dict:
         args = switch_to_plot(args)
 
     # Check if noise type is single-qubit and sim_mode is density with noise enabled
+    # Warning is now handled by validate_parameters, so we just prompt for action
     if (
         args["sim_mode"] == "density"
         and args["noise_type"] in SINGLE_QUBIT_NOISE_TYPES
         and args["noise_enabled"]
     ):
-        print_message("density_noise_warning", noise_type=args["noise_type"])
-        choice = get_input("density_noise_prompt", "p", ["p", "switch", "c"])
+        choice = input_handler.get_input(
+            "density_noise_prompt", "p", ["p", "switch", "c"]
+        )
         if choice == "switch":
             print_message("suggested_multi_qubit_noise_types")
-            new_noise = get_input(
+            new_noise = input_handler.get_input(
                 "noise_type_prompt",
                 "depolarizing",
                 valid_options=[
@@ -540,7 +489,9 @@ def validate_and_prompt(args: Dict) -> Dict:
         print_message(
             "hypergraph_density_no_noise_warning", state_type=args["state_type"]
         )
-        choice = get_input("hypergraph_density_no_noise_prompt", "p", ["p", "e", "v"])
+        choice = input_handler.get_input(
+            "hypergraph_density_no_noise_prompt", "p", ["p", "e", "v"]
+        )
         if choice == "e":
             args["noise_enabled"] = True
             print_message("noise_enabled")
@@ -608,7 +559,9 @@ def run_and_visualize(
 
     # Run the experiment with a progress spinner
     with Progress(
-        SpinnerColumn(), TextColumn("[bold blue]Running experiment..."), transient=True
+        SpinnerColumn(),
+        TextColumn("[bold blue]Running experiment..."),
+        transient=True,
     ) as progress:
         task = progress.add_task("Experiment", total=None)
         qc, result = run_experiment(**args_for_experiment)
@@ -632,81 +585,17 @@ def run_and_visualize(
     # Debug log to confirm visualization type
     print_message("debug_viz_type", viz_type=args["visualization_type"])
 
-    # Handle visualization non-blockingly
-    plot_closed_with_ctrl_c = False
-    if args["visualization_type"] == "plot":
-        if args["sim_mode"] == "qasm":
-            if args["save_plot"]:
-                Visualizer.plot_histogram(
-                    result["counts"],
-                    state_type=args["state_type"],
-                    noise_type=args["noise_type"] if args["noise_enabled"] else None,
-                    noise_enabled=args["noise_enabled"],
-                    save_path=args["save_plot"],
-                    min_occurrences=args["min_occurrences"],
-                    num_qubits=args["num_qubits"],
-                )
-            else:
-                plot_closed_with_ctrl_c = not show_plot_nonblocking(
-                    Visualizer.plot_histogram,
-                    result["counts"],
-                    state_type=args["state_type"],
-                    noise_type=args["noise_type"] if args["noise_enabled"] else None,
-                    noise_enabled=args["noise_enabled"],
-                    min_occurrences=args["min_occurrences"],
-                    num_qubits=args["num_qubits"],
-                )
-        else:
-            args["show_real"] = args.get("show_real", False)
-            args["show_imag"] = args.get("show_imag", False)
-            if args["save_plot"]:
-                Visualizer.plot_density_matrix(
-                    result,
-                    cmap="viridis",
-                    show_real=args["show_real"],
-                    show_imag=args["show_imag"],
-                    save_path=args["save_plot"],
-                    state_type=args["state_type"],
-                    noise_type=args["noise_type"] if args["noise_enabled"] else None,
-                )
-            else:
-                plot_closed_with_ctrl_c = not show_plot_nonblocking(
-                    Visualizer.plot_density_matrix,
-                    result,
-                    cmap="viridis",
-                    show_real=args["show_real"],
-                    show_imag=args["show_imag"],
-                    state_type=args["state_type"],
-                    noise_type=args["noise_type"] if args["noise_enabled"] else None,
-                )
-    elif args["visualization_type"] == "hypergraph":
-        correlation_data = (
-            result["counts"]
-            if args["sim_mode"] == "qasm"
-            else (
-                {"density": np.abs(result.data).tolist()}
-                if isinstance(result, DensityMatrix)
-                else (
-                    result.get("hypergraph", {}).get("correlations", {})
-                    if isinstance(result, dict)
-                    else {}
-                )
-            )
-        )
-        if args["save_plot"]:
-            Visualizer.plot_hypergraph(
-                correlation_data,
-                state_type=args["state_type"],
-                noise_type=args["noise_type"] if args["noise_enabled"] else None,
-                save_path=args["save_plot"],
-            )
-        else:
-            plot_closed_with_ctrl_c = not show_plot_nonblocking(
-                Visualizer.plot_hypergraph,
-                correlation_data,
-                state_type=args["state_type"],
-                noise_type=args["noise_type"] if args["noise_enabled"] else None,
-            )
+    # Handle visualization
+    plot_closed_with_ctrl_c = handle_visualization(
+        result,
+        args,
+        args["sim_mode"],
+        args["state_type"],
+        args["noise_type"],
+        args["noise_enabled"],
+        args.get("save_plot"),
+        show_plot_nonblocking,
+    )
 
     return qc, result, plot_closed_with_ctrl_c
 
@@ -806,11 +695,13 @@ def interactive_experiment():
         print_message("new_option")
         print_message("quit_option")
 
-        choice = get_input("your_choice", "s", ["s", "n", "q"])
+        choice = input_handler.get_input("your_choice", "s", ["s", "n", "q"])
 
         if choice == "s":
             print_message("running_with_defaults")
-            viz_choice = get_input("viz_type_prompt", "p", ["p", "h", "n"])
+            viz_choice = input_handler.get_input(
+                "viz_type_prompt", "p", ["p", "h", "n"]
+            )
             args = collect_parameters(interactive=True)
             args["visualization_type"] = (
                 "plot"
@@ -818,9 +709,11 @@ def interactive_experiment():
                 else "hypergraph" if viz_choice in ["h", "hypergraph"] else "none"
             )
             if args["visualization_type"] != "none":
-                args["save_plot"] = get_input("save_plot_prompt", "").strip() or None
+                args["save_plot"] = (
+                    input_handler.get_input("save_plot_prompt", "").strip() or None
+                )
                 if args["visualization_type"] == "plot" and args["sim_mode"] == "qasm":
-                    args["min_occurrences"] = get_numeric_input(
+                    args["min_occurrences"] = input_handler.get_numeric_input(
                         "min_occurrences_prompt", "0"
                     )
         elif choice == "n":
@@ -836,7 +729,7 @@ def interactive_experiment():
         display_params_summary(args)
 
         # Confirm before running
-        if get_input("proceed_prompt", "y", ["y", "n"]) != "y":
+        if input_handler.get_input("proceed_prompt", "y", ["y", "n"]) != "y":
             print_message("params_discarded")
             continue
 
@@ -848,7 +741,9 @@ def interactive_experiment():
             print_message("current_params", params=format_params(args))
             if plot_closed_with_ctrl_c:
                 print_message("rerun_plot_prompt")
-                rerun_choice = get_input("rerun_choice_prompt", "y", ["y", "n"])
+                rerun_choice = input_handler.get_input(
+                    "rerun_choice_prompt", "y", ["y", "n"]
+                )
                 if rerun_choice == "y":
                     experiment_id = str(uuid.uuid4())
                     qc, result, plot_closed_with_ctrl_c = run_and_visualize(
@@ -858,7 +753,7 @@ def interactive_experiment():
                 else:
                     plot_closed_with_ctrl_c = False  # Reset flag
 
-            next_choice = get_input("rerun_prompt", "r", ["r", "n", "q"])
+            next_choice = input_handler.get_input("rerun_prompt", "r", ["r", "n", "q"])
             if next_choice == "r":
                 print_message("rerun_same")
                 logger.log_with_experiment_id(

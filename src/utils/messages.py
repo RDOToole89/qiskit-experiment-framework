@@ -11,7 +11,7 @@ MESSAGES = {
     "skip_option": "🔄 Press 's' to skip and use default settings",
     "new_option": "🆕 Press 'n' to enter parameters manually",
     "quit_option": "❌ Press 'q' to quit",
-    "your_choice": "➡️ Your choice: ",
+    "your_choice": "➡️ Your choice: [{default}] ",
     "invalid_choice": "[bold red]⚠️ Invalid choice! Please enter s, n, or q.[/bold red]",
     # Parameter collection prompts
     "enter_parameters": "\n[bold blue]🔹 Enter your experiment parameters below:[/bold blue]\n",
@@ -37,7 +37,7 @@ MESSAGES = {
     "lattice_type_prompt": "Lattice type (1d/2d) [{default}]: ",
     "custom_params_prompt": "Set custom params? (y/n) [{default}]: ",
     "custom_params_value_prompt": "Enter custom params as JSON (press Enter for none): ",
-    # New prompt for proceeding with parameters
+    # Prompt for proceeding with parameters
     "proceed_prompt": "Proceed with these parameters? (y/n) [{default}]: ",
     # Validation warnings and prompts
     "invalid_input": "[bold red]⚠️ Invalid input: '{input}'. Please choose from {options}.[/bold red]",
