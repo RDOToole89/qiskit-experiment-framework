@@ -1,3 +1,5 @@
+# src/scripts/run_experiment_cli.py
+
 #!/usr/bin/env python3
 
 """
@@ -12,7 +14,7 @@ Key features:
 - Dynamic validation pulling from noise models and state preparation modules.
 - Logging and results saving for research analysis (e.g., hypergraphs, density matrices).
 - Optional visualization via `--plot` or `--plot-hypergraph` for immediate feedback.
-- Support for time-stepped simulations to analyze decoherence dynamics.
+- Support for time-stepped simulations to analyze decoherence dynamics with multiple noise parameters.
 - Extensible for custom params, config files, or new backends (e.g., IBM hardware).
 - Handles Qiskit deprecation warnings and density mode errors.
 
@@ -27,6 +29,7 @@ import click
 import numpy as np
 import warnings
 from typing import Optional, List, Union, Dict
+from tqdm import tqdm
 from qiskit.quantum_info import DensityMatrix
 from src.run_experiment import run_experiment
 from src.utils import ExperimentUtils
@@ -93,7 +96,7 @@ logger = ExperimentUtils.setup_logger()
 @click.option(
     "--hypergraph-transitions/--no-hypergraph-transitions",
     default=False,
-    help="Plot error transition graph for hypergraph",
+    help="Plot error transition graph for hypergraph (requires --noise-stepped)",
 )
 # Time-stepped simulation options
 @click.option(
@@ -106,6 +109,39 @@ logger = ExperimentUtils.setup_logger()
 )
 @click.option("--noise-end", type=float, default=0.5, help="Ending noise error rate")
 @click.option("--noise-steps", type=int, default=10, help="Number of noise steps")
+# Stepped options for other noise parameters
+@click.option(
+    "--z-prob-start", type=float, help="Starting Z probability for PHASE_FLIP noise"
+)
+@click.option(
+    "--z-prob-end", type=float, help="Ending Z probability for PHASE_FLIP noise"
+)
+@click.option(
+    "--i-prob-start", type=float, help="Starting I probability for PHASE_FLIP noise"
+)
+@click.option(
+    "--i-prob-end", type=float, help="Ending I probability for PHASE_FLIP noise"
+)
+@click.option(
+    "--t1-start",
+    type=float,
+    help="Starting T1 relaxation time (µs) for THERMAL_RELAXATION noise",
+)
+@click.option(
+    "--t1-end",
+    type=float,
+    help="Ending T1 relaxation time (µs) for THERMAL_RELAXATION noise",
+)
+@click.option(
+    "--t2-start",
+    type=float,
+    help="Starting T2 dephasing time (µs) for THERMAL_RELAXATION noise",
+)
+@click.option(
+    "--t2-end",
+    type=float,
+    help="Ending T2 dephasing time (µs) for THERMAL_RELAXATION noise",
+)
 def main(
     num_qubits: Optional[int],
     state_type: Optional[str],
@@ -128,6 +164,14 @@ def main(
     noise_start: float,
     noise_end: float,
     noise_steps: int,
+    z_prob_start: Optional[float],
+    z_prob_end: Optional[float],
+    i_prob_start: Optional[float],
+    i_prob_end: Optional[float],
+    t1_start: Optional[float],
+    t1_end: Optional[float],
+    t2_start: Optional[float],
+    t2_end: Optional[float],
 ):
     """
     Runs the quantum experiment from the CLI, with logging, validation, and optional visualization.
@@ -138,6 +182,12 @@ def main(
     Raises:
         ValueError: If inputs are invalid or inconsistent.
     """
+    # Enforce dependency: --hypergraph-transitions requires --noise-stepped
+    if hypergraph_transitions and not noise_stepped:
+        raise click.UsageError(
+            "Error: --hypergraph-transitions requires --noise-stepped to be enabled"
+        )
+
     # Parse CLI args using utils
     args = ExperimentUtils.parse_args()
 
@@ -163,11 +213,44 @@ def main(
     # Run experiment
     try:
         if noise_stepped and noise_enabled:
-            # Generate stepped error rates
-            error_rates = np.linspace(noise_start, noise_end, noise_steps)
+            # Generate stepped parameters
+            error_rates = (
+                np.linspace(noise_start, noise_end, noise_steps)
+                if noise_start is not None and noise_end is not None
+                else np.array([args.error_rate] * noise_steps)
+            )
+            z_probs = (
+                np.linspace(z_prob_start, z_prob_end, noise_steps)
+                if z_prob_start is not None and z_prob_end is not None
+                else np.array(
+                    [args.z_prob if args.z_prob is not None else 0.0] * noise_steps
+                )
+            )
+            i_probs = (
+                np.linspace(i_prob_start, i_prob_end, noise_steps)
+                if i_prob_start is not None and i_prob_end is not None
+                else np.array(
+                    [args.i_prob if args.i_prob is not None else 0.0] * noise_steps
+                )
+            )
+            t1_values = (
+                np.linspace(t1_start, t1_end, noise_steps)
+                if t1_start is not None and t1_end is not None
+                else np.array([args.t1 if args.t1 is not None else 100.0] * noise_steps)
+            )
+            t2_values = (
+                np.linspace(t2_start, t2_end, noise_steps)
+                if t2_start is not None and t2_end is not None
+                else np.array([args.t2 if args.t2 is not None else 80.0] * noise_steps)
+            )
+
             results = []
-            for rate in error_rates:
-                logger.info(f"Running experiment with error rate {rate:.3f}")
+            for idx in tqdm(range(noise_steps), desc="Running stepped simulations"):
+                logger.info(
+                    f"Running step {idx+1}/{noise_steps}: error_rate={error_rates[idx]:.3f}, "
+                    f"z_prob={z_probs[idx]:.3f}, i_prob={i_probs[idx]:.3f}, "
+                    f"t1={t1_values[idx]:.3f}, t2={t2_values[idx]:.3f}"
+                )
                 result = run_experiment(
                     num_qubits=args.num_qubits,
                     state_type=args.state_type,
@@ -175,16 +258,19 @@ def main(
                     noise_enabled=args.noise_enabled,
                     shots=args.shots,
                     sim_mode=args.sim_mode,
-                    error_rate=rate,
-                    z_prob=args.z_prob,
-                    i_prob=args.i_prob,
-                    t1=args.t1,
-                    t2=args.t2,
+                    error_rate=error_rates[idx],
+                    z_prob=z_probs[idx] if z_probs[idx] != 0.0 else None,
+                    i_prob=i_probs[idx] if i_probs[idx] != 0.0 else None,
+                    t1=t1_values[idx] if t1_values[idx] != 100.0 else None,
+                    t2=t2_values[idx] if t2_values[idx] != 80.0 else None,
                     custom_params=args.custom_params,
                 )
                 results.append(result)
+            time_steps = (
+                error_rates.tolist()
+            )  # Use error rates as time steps for visualization
         else:
-            # Single run with specified error rate
+            # Single run with specified parameters
             results = run_experiment(
                 num_qubits=args.num_qubits,
                 state_type=args.state_type,
@@ -199,6 +285,7 @@ def main(
                 t2=args.t2,
                 custom_params=args.custom_params,
             )
+            time_steps = None
     except Exception as e:
         logger.error(f"Experiment failed: {str(e)}")
         raise
@@ -253,7 +340,6 @@ def main(
                 )
                 for result in results
             ]
-            time_steps = error_rates.tolist()
         else:
             correlation_data = (
                 results["counts"]

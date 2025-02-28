@@ -12,6 +12,137 @@ from itertools import combinations
 
 logger = logging.getLogger("QuantumExperiment.Visualization")
 
+# Gell-Mann matrices for SU(3) symmetry analysis
+GELL_MANN = [
+    np.array([[0, 1, 0], [1, 0, 0], [0, 0, 0]]),  # λ1
+    np.array([[0, -1j, 0], [1j, 0, 0], [0, 0, 0]]),  # λ2
+    np.array([[1, 0, 0], [0, -1, 0], [0, 0, 0]]),  # λ3
+    np.array([[0, 0, 1], [0, 0, 0], [1, 0, 0]]),  # λ4
+    np.array([[0, 0, -1j], [0, 0, 0], [1j, 0, 0]]),  # λ5
+    np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0]]),  # λ6
+    np.array([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]]),  # λ7
+    np.array([[1, 0, 0], [0, 1, 0], [0, 0, -2]]) / np.sqrt(3),  # λ8
+]
+
+
+def compute_su2_symmetry(counts: Dict, num_qubits: int, shots: float) -> Dict:
+    """
+    Computes SU(2) symmetry metrics using Pauli correlations (XX, YY, ZZ) for pairwise qubits.
+
+    Args:
+        counts (Dict): Measurement counts.
+        num_qubits (int): Number of qubits.
+        shots (float): Total number of shots.
+
+    Returns:
+        Dict: Pauli correlations for each pair of qubits and SU(2) symmetry metric.
+    """
+    correlations = {"XX": {}, "YY": {}, "ZZ": {}}
+    for i in range(num_qubits):
+        for j in range(i + 1, num_qubits):
+            zz_corr = 0.0
+            for bitstring, count in counts.items():
+                bit_i, bit_j = int(bitstring[i]), int(bitstring[j])
+                zz_value = (-1) ** (bit_i + bit_j)
+                zz_corr += zz_value * (count / shots)
+            correlations["ZZ"][(i, j)] = zz_corr
+    zz_values = list(correlations["ZZ"].values())
+    su2_symmetry = np.var(zz_values) if zz_values else 0.0
+    return {"correlations": correlations, "su2_symmetry": su2_symmetry}
+
+
+def compute_su3_symmetry(density_matrix: np.ndarray, num_qubits: int) -> float:
+    """
+    Computes SU(3) symmetry metrics using Gell-Mann matrices for 3-qubit subsets.
+
+    Args:
+        density_matrix (np.ndarray): Density matrix.
+        num_qubits (int): Number of qubits.
+
+    Returns:
+        float: SU(3) symmetry metric (variance of Gell-Mann expectations).
+    """
+    if num_qubits < 3:
+        return 0.0
+    rho_123 = partial_trace(density_matrix, keep=[0, 1, 2], dims=[2] * num_qubits)
+    expectations = []
+    for gm in GELL_MANN:
+        expectation = np.trace(rho_123 @ gm).real
+        expectations.append(expectation)
+    return np.var(expectations)
+
+
+def compute_bloch_vector(rho: np.ndarray) -> tuple:
+    """
+    Computes the Bloch vector (x, y, z) for a single-qubit density matrix.
+
+    Args:
+        rho (np.ndarray): Single-qubit density matrix.
+
+    Returns:
+        tuple: (x, y, z) coordinates on the Bloch sphere.
+    """
+    pauli_x = Pauli("X").to_matrix()
+    pauli_y = Pauli("Y").to_matrix()
+    pauli_z = Pauli("Z").to_matrix()
+    x = np.trace(rho @ pauli_x).real
+    y = np.trace(rho @ pauli_y).real
+    z = np.trace(rho @ pauli_z).real
+    return (x, y, z)
+
+
+def plot_bloch_sphere_vectors(
+    bloch_vectors: List[Dict[int, tuple]],
+    time_steps: List[float],
+    save_path: str,
+) -> None:
+    """
+    Plots the Bloch sphere trajectories for each qubit over time.
+
+    Args:
+        bloch_vectors (List[Dict[int, tuple]]): List of Bloch vectors per qubit at each timestep.
+        time_steps (List[float]): Timesteps.
+        save_path (str): Base path to save the plots.
+    """
+    from mpl_toolkits.mplot3d import Axes3D
+
+    num_qubits = len(bloch_vectors[0])
+    for qubit in range(num_qubits):
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection="3d")
+        ax.set_title(f"Bloch Sphere Trajectory - Qubit {qubit}")
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        u = np.linspace(0, 2 * np.pi, 20)
+        v = np.linspace(0, np.pi, 20)
+        x = np.outer(np.cos(u), np.sin(v))
+        y = np.outer(np.sin(u), np.sin(v))
+        z = np.outer(np.ones(np.size(u)), np.cos(v))
+        ax.plot_wireframe(x, y, z, color="gray", alpha=0.2)
+        xs = [bv[qubit][0] for bv in bloch_vectors]
+        ys = [bv[qubit][1] for bv in bloch_vectors]
+        zs = [bv[qubit][2] for bv in bloch_vectors]
+        ax.plot(xs, ys, zs, marker="o", label=f"Qubit {qubit}")
+        for i in range(len(xs) - 1):
+            ax.quiver(
+                xs[i],
+                ys[i],
+                zs[i],
+                xs[i + 1] - xs[i],
+                ys[i + 1] - ys[i],
+                zs[i + 1] - zs[i],
+                color="blue",
+                alpha=0.5,
+                arrow_length_ratio=0.1,
+            )
+        ax.legend()
+        plt.savefig(
+            f"{save_path}_bloch_qubit_{qubit}.png", bbox_inches="tight", dpi=300
+        )
+        logger.info(f"Saved Bloch sphere plot to {save_path}_bloch_qubit_{qubit}.png")
+        plt.close()
+
 
 def compute_correlations(
     correlation_data: Dict,
@@ -27,8 +158,6 @@ def compute_correlations(
         num_qubits (int): Number of qubits.
         mode (str): 'qasm' or 'density'.
         config (Dict): Configuration for correlation computation.
-            - max_order (int): Maximum order of correlations (e.g., 2 for pairwise, 3 for 3-qubit).
-            - threshold (float): Correlation threshold for including edges.
 
     Returns:
         Dict: Dictionary of edges with correlation weights.
@@ -37,10 +166,9 @@ def compute_correlations(
     edge_id = 0
     shots = sum(correlation_data.values()) if mode == "qasm" else 1
     threshold = config.get("threshold", 0.1 if mode == "qasm" else 0.01)
-    max_order = config.get("max_order", 2)  # Default to pairwise correlations
+    max_order = config.get("max_order", 2)
 
     if mode == "qasm":
-        # Compute higher-order correlations up to max_order
         for r in range(2, max_order + 1):
             for qubit_subset in combinations(range(num_qubits), r):
                 corr = 0.0
@@ -53,7 +181,6 @@ def compute_correlations(
                     edges[f"e{edge_id}"] = (edge_nodes, {"weight": corr})
                     edge_id += 1
     else:
-        # Density mode
         density_matrix = np.array(correlation_data["density"])
         for i in range(density_matrix.shape[0]):
             for j in range(i + 1, density_matrix.shape[1]):
@@ -84,23 +211,37 @@ def plot_hypergraph(
 
     Args:
         correlation_data (Union[Dict, List[Dict]]): Counts or density matrix data, or list for time evolution.
-        state_type (str, optional): Quantum state type (e.g., GHZ, W, CLUSTER).
-        noise_type (str, optional): Noise applied (e.g., DEPOLARIZING).
+        state_type (str, optional): Quantum state type.
+        noise_type (str, optional): Noise applied.
         save_path (str, optional): File path to save the plot.
         time_steps (List[float], optional): Timesteps for dynamic visualization.
         config (Dict, optional): Configuration dictionary.
-            - max_order (int): Maximum order of correlations (default: 2).
-            - threshold (float): Correlation threshold (default: 0.1 for QASM, 0.01 for density).
-            - symmetry_analysis (bool): Compute and display symmetry metrics (default: False).
-            - plot_transitions (bool): Plot error transition graph (default: False).
     """
     config = config or {}
     config.setdefault("max_order", 2)
-    config.setdefault("threshold", None)  # Will be set based on mode
+    config.setdefault("threshold", None)
     config.setdefault("symmetry_analysis", False)
     config.setdefault("plot_transitions", False)
+    config.setdefault("plot_bloch", False)
+    config.setdefault("node_color", "blue")
+    config.setdefault("edge_color", "red")
 
     if time_steps is not None and isinstance(correlation_data, list):
+        if config["plot_bloch"]:
+            bloch_vectors = []
+            for data in correlation_data:
+                if "density" in data:
+                    density_matrix = np.array(data["density"])
+                    num_qubits = int(np.log2(density_matrix.shape[0]))
+                    qubit_bloch = {}
+                    for qubit in range(num_qubits):
+                        rho_qubit = partial_trace(
+                            density_matrix, keep=[qubit], dims=[2] * num_qubits
+                        )
+                        bloch_vector = compute_bloch_vector(rho_qubit)
+                        qubit_bloch[qubit] = bloch_vector
+                    bloch_vectors.append(qubit_bloch)
+            plot_bloch_sphere_vectors(bloch_vectors, time_steps, save_path)
         for step, data in enumerate(correlation_data):
             plot_single_hypergraph(
                 data,
@@ -138,7 +279,6 @@ def plot_single_hypergraph(
         logger.warning("No valid correlation data for hypergraph plotting.")
         return
 
-    # Determine mode and number of qubits
     mode = "density" if "density" in correlation_data else "qasm"
     if mode == "density":
         density_matrix = np.array(correlation_data["density"])
@@ -147,22 +287,17 @@ def plot_single_hypergraph(
         num_qubits = len(next(iter(correlation_data.keys())))
         shots = sum(correlation_data.values())
 
-    # Create nodes for each qubit
     nodes = [f"q{i}" for i in range(num_qubits)]
-
-    # Compute correlations
     edges = compute_correlations(correlation_data, num_qubits, mode, config)
-
     if not edges:
         logger.warning("No significant correlations found for hypergraph plotting.")
         return
 
-    # Create the hypergraph
     hyperedges = {name: edge_nodes for name, (edge_nodes, _) in edges.items()}
     H = hnx.Hypergraph(hyperedges)
 
-    # Plot the hypergraph
     plt.figure(figsize=(10, 6))
+    # Use the corrected keyword 'nodes_kwargs' (with an 's') below.
     hnx.drawing.draw(
         H,
         node_labels={node: node for node in nodes},
@@ -170,6 +305,8 @@ def plot_single_hypergraph(
             name: f"{props['weight']:.2f}"
             for name, (edge_nodes, props) in edges.items()
         },
+        nodes_kwargs={"color": config["node_color"]},
+        edges_kwargs={"color": config["edge_color"]},
     )
     title = f"{state_type or 'Quantum'} State Hypergraph"
     if noise_type:
@@ -179,16 +316,21 @@ def plot_single_hypergraph(
     plt.title(title)
 
     if config.get("symmetry_analysis"):
-        # Compute and display symmetry metrics
         if mode == "qasm":
             parity = compute_parity_distribution(correlation_data, num_qubits)
             perm_sym = compute_permutation_symmetric_correlations(
                 correlation_data, num_qubits, shots
             )
+            su2_sym = compute_su2_symmetry(correlation_data, num_qubits, shots)
+            symmetry_text = (
+                f"Parity (Even/Odd): {parity['even']:.2f}/{parity['odd']:.2f}\n"
+                f"Perm. Sym. ZZ: {perm_sym:.2f}\n"
+                f"SU(2) Symmetry (var): {su2_sym['su2_symmetry']:.2f}"
+            )
             plt.text(
                 0.05,
                 0.95,
-                f"Parity (Even/Odd): {parity['even']:.2f}/{parity['odd']:.2f}\nPerm. Sym. ZZ: {perm_sym:.2f}",
+                symmetry_text,
                 transform=plt.gca().transAxes,
                 bbox=dict(facecolor="white", alpha=0.8),
             )
@@ -196,15 +338,19 @@ def plot_single_hypergraph(
             conditional_corrs = compute_conditional_correlations(
                 density_matrix, num_qubits
             )
-            avg_corr = np.mean([corr for corr in conditional_corrs.values()])
+            avg_corr = np.mean(list(conditional_corrs.values()))
+            su3_sym = compute_su3_symmetry(density_matrix, num_qubits)
+            symmetry_text = (
+                f"Avg. Conditional Corr.: {avg_corr:.2f}\n"
+                f"SU(3) Symmetry (var): {su3_sym:.2f}"
+            )
             plt.text(
                 0.05,
                 0.95,
-                f"Avg. Conditional Corr.: {avg_corr:.2f}",
+                symmetry_text,
                 transform=plt.gca().transAxes,
                 bbox=dict(facecolor="white", alpha=0.8),
             )
-
     if save_path:
         os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
@@ -240,12 +386,10 @@ def plot_error_transition_graph(
                 prob_t1 = counts_t1.get(next_state, 0) / shots
                 if prob_t > 0 and prob_t1 > 0 and state != next_state:
                     transition_prob = prob_t1 / prob_t
-                    if transition_prob > 0.01:  # Threshold to avoid clutter
+                    if transition_prob > 0.01:
                         G.add_edge(
                             state, next_state, weight=transition_prob, t=time_steps[t]
                         )
-
-    # Plot the graph for each timestep
     pos = nx.spring_layout(G)
     for t in time_steps[:-1]:
         plt.figure(figsize=(10, 6))
@@ -253,9 +397,7 @@ def plot_error_transition_graph(
         if not edges:
             plt.close()
             continue
-        weights = [
-            G[u][v]["weight"] * 5 for u, v in edges
-        ]  # Scale weights for visibility
+        weights = [G[u][v]["weight"] * 5 for u, v in edges]
         nx.draw_networkx_nodes(G, pos)
         nx.draw_networkx_edges(G, pos, edgelist=edges, width=weights)
         nx.draw_networkx_labels(G, pos)

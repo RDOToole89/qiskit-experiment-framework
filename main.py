@@ -9,6 +9,7 @@ This script provides an interactive CLI to execute quantum experiments, supporti
 - Logging and structured results saving for hypergraph or decoherence analysis.
 - Optional, non-blocking visualization via histograms, density matrices, or hypergraphs,
   closable with Ctrl+C, with save and filtering options.
+- Support for time-stepped simulations to analyze decoherence dynamics.
 - Extensible architecture for future quantum state/noise additions and research features,
   with full rerun support.
 
@@ -28,6 +29,7 @@ import warnings
 import uuid
 from datetime import datetime
 from typing import Optional, Dict, Tuple, Union
+from tqdm import tqdm
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import DensityMatrix
 from src.run_experiment import run_experiment
@@ -69,7 +71,7 @@ def print_message(key: str, **kwargs) -> None:
         key (str): The key to look up the message in MESSAGES.
         **kwargs: Values to format the message with (e.g., noise_type, num_qubits).
     """
-    message = MESSAGES.get(key, f"[bold red]Missing message for key: {key}[/bold red]")
+    message = MESSAGES.get(key, f"[bold red]Missing prompt for key: {key}[/bold red]")
     console.print(message.format(**kwargs))
 
 
@@ -90,9 +92,7 @@ def show_plot_nonblocking(visualizer_method, *args, **kwargs) -> bool:
     plt.draw()  # Draw the plot
     plt.pause(0.1)  # Brief pause to show plot
     try:
-        input(
-            "Press Enter or Ctrl+C to continue..."
-        )  # Wait for user input or interrupt
+        input("Press Enter or Ctrl+C to continue...")
         plt.close()  # Close plot
         return True  # Closed with Enter
     except KeyboardInterrupt:
@@ -106,12 +106,6 @@ def show_plot_nonblocking(visualizer_method, *args, **kwargs) -> bool:
 def format_params(args: Dict) -> str:
     """
     Formats experiment parameters for display, excluding visualization keys.
-
-    Args:
-        args (Dict): Experiment parameters.
-
-    Returns:
-        str: Formatted string of parameters.
     """
     params = {
         k: v
@@ -123,6 +117,20 @@ def format_params(args: Dict) -> str:
             "min_occurrences",
             "show_real",
             "show_imag",
+            "hypergraph_config",
+            "time_steps",
+            "noise_stepped",
+            "noise_start",
+            "noise_end",
+            "noise_steps",
+            "z_prob_start",
+            "z_prob_end",
+            "i_prob_start",
+            "i_prob_end",
+            "t1_start",
+            "t1_end",
+            "t2_start",
+            "t2_end",
         ]
     }
     return ", ".join(f"{k}={v}" for k, v in params.items() if v is not None)
@@ -131,9 +139,6 @@ def format_params(args: Dict) -> str:
 def display_params_summary(args: Dict) -> None:
     """
     Displays a formatted summary of experiment parameters before running.
-
-    Args:
-        args (Dict): Experiment parameters.
     """
     table = Table(
         title="Experiment Parameters", show_header=True, header_style="bold magenta"
@@ -156,6 +161,29 @@ def display_params_summary(args: Dict) -> None:
         "T2": args["t2"] if args["t2"] is not None else "Default",
         "Custom Params": args["custom_params"] if args["custom_params"] else "None",
     }
+    # Add stepped parameters if applicable
+    if args.get("noise_stepped", False):
+        params_to_display.update(
+            {
+                "Noise Stepped": "Yes",
+                "Noise Start": args.get("noise_start", 0.0),
+                "Noise End": args.get("noise_end", 0.5),
+                "Noise Steps": args.get("noise_steps", 10),
+            }
+        )
+        if "z_prob_start" in args:
+            params_to_display["Z Prob Start"] = args["z_prob_start"]
+            params_to_display["Z Prob End"] = args["z_prob_end"]
+        if "i_prob_start" in args:
+            params_to_display["I Prob Start"] = args["i_prob_start"]
+            params_to_display["I Prob End"] = args["i_prob_end"]
+        if "t1_start" in args:
+            params_to_display["T1 Start"] = args["t1_start"]
+            params_to_display["T1 End"] = args["t1_end"]
+        if "t2_start" in args:
+            params_to_display["T2 Start"] = args["t2_start"]
+            params_to_display["T2 End"] = args["t2_end"]
+
     for param, value in params_to_display.items():
         table.add_row(param, str(value))
     console.print(table)
@@ -164,12 +192,6 @@ def display_params_summary(args: Dict) -> None:
 def switch_to_plot(args: Dict) -> Dict:
     """
     Switches the visualization type to 'plot' and collects related settings.
-
-    Args:
-        args (Dict): Current parameters.
-
-    Returns:
-        Dict: Updated parameters with visualization type set to 'plot' and related settings.
     """
     args["visualization_type"] = "plot"
     if args["sim_mode"] == "qasm":
@@ -186,12 +208,6 @@ def switch_to_plot(args: Dict) -> Dict:
 def collect_core_parameters(args: Dict) -> Dict:
     """
     Collects core experiment parameters from the user.
-
-    Args:
-        args (Dict): Initial parameters with defaults.
-
-    Returns:
-        Dict: Updated parameters with core user inputs.
     """
     print_message("enter_parameters")
 
@@ -254,24 +270,76 @@ def collect_core_parameters(args: Dict) -> Dict:
     return args
 
 
-# src/main.py (only showing relevant updated sections)
+def collect_stepped_noise_parameters(args: Dict) -> Dict:
+    """
+    Collects parameters for time-stepped noise simulations.
+    """
+    if not args["noise_enabled"]:
+        return args
+
+    # Ask if user wants to run a stepped simulation
+    args["noise_stepped"] = input_handler.prompt_yes_no(
+        "noise_stepped_prompt", default="n"
+    )
+    if not args["noise_stepped"]:
+        return args
+
+    # Collect number of steps
+    args["noise_steps"] = input_handler.get_numeric_input(
+        "noise_steps_prompt", "10", int
+    )
+
+    # Collect stepped parameters for error_rate
+    if input_handler.prompt_yes_no("custom_error_rate_stepped_prompt", default="y"):
+        args["noise_start"] = input_handler.get_numeric_input(
+            "noise_start_prompt", "0.0", float
+        )
+        args["noise_end"] = input_handler.get_numeric_input(
+            "noise_end_prompt", "0.5", float
+        )
+
+    # Collect stepped parameters for PHASE_FLIP noise
+    if args["noise_type"] == "PHASE_FLIP":
+        if input_handler.prompt_yes_no("custom_zi_probs_stepped_prompt", default="n"):
+            args["z_prob_start"] = input_handler.get_numeric_input(
+                "z_prob_start_prompt", "0.0", float
+            )
+            args["z_prob_end"] = input_handler.get_numeric_input(
+                "z_prob_end_prompt", "0.5", float
+            )
+            args["i_prob_start"] = input_handler.get_numeric_input(
+                "i_prob_start_prompt", "0.0", float
+            )
+            args["i_prob_end"] = input_handler.get_numeric_input(
+                "i_prob_end_prompt", "0.5", float
+            )
+
+    # Collect stepped parameters for THERMAL_RELAXATION noise
+    if args["noise_type"] == "THERMAL_RELAXATION":
+        if input_handler.prompt_yes_no("custom_t1t2_stepped_prompt", default="n"):
+            args["t1_start"] = (
+                input_handler.get_numeric_input("t1_start_prompt", "100", float) * 1e-6
+            )
+            args["t1_end"] = (
+                input_handler.get_numeric_input("t1_end_prompt", "50", float) * 1e-6
+            )
+            args["t2_start"] = (
+                input_handler.get_numeric_input("t2_start_prompt", "80", float) * 1e-6
+            )
+            args["t2_end"] = (
+                input_handler.get_numeric_input("t2_end_prompt", "40", float) * 1e-6
+            )
+
+    return args
 
 
 def collect_visualization_settings(args: Dict) -> Dict:
     """
     Collects visualization-related settings from the user.
-
-    Args:
-        args (Dict): Current parameters.
-
-    Returns:
-        Dict: Updated parameters with visualization settings.
     """
     # Visualization selection
     viz_choice = input_handler.get_input(
-        "viz_type_prompt",
-        default="n",
-        valid_options=["p", "h", "n"],
+        "viz_type_prompt", default="n", valid_options=["p", "h", "n"]
     )
     args["visualization_type"] = (
         "plot"
@@ -292,56 +360,35 @@ def collect_visualization_settings(args: Dict) -> Dict:
 
     # Hypergraph-specific settings
     if args["visualization_type"] == "hypergraph":
-        # Initialize hypergraph config
         args["hypergraph_config"] = {}
-
-        # Maximum order of correlations
         max_order = input_handler.get_numeric_input(
             "hypergraph_max_order_prompt", "2", int
         )
         args["hypergraph_config"]["max_order"] = max_order
 
-        # Correlation threshold
         default_threshold = "0.1" if args["sim_mode"] == "qasm" else "0.01"
         threshold = input_handler.get_numeric_input(
             "hypergraph_threshold_prompt", default_threshold, float
         )
         args["hypergraph_config"]["threshold"] = threshold
 
-        # Symmetry analysis
         args["hypergraph_config"]["symmetry_analysis"] = input_handler.prompt_yes_no(
             "hypergraph_symmetry_analysis_prompt", default="n"
         )
 
-        # Plot error transitions (only if time_steps are provided)
-        if "time_steps" in args:
+        if "noise_stepped" in args and args["noise_stepped"]:
             args["hypergraph_config"]["plot_transitions"] = input_handler.prompt_yes_no(
                 "hypergraph_plot_transitions_prompt", default="n"
             )
+        else:
+            args["hypergraph_config"]["plot_transitions"] = False
 
     return args
-
-
-# Add new prompts to src/utils/messages.py
-MESSAGES.update(
-    {
-        "hypergraph_max_order_prompt": "Maximum order of correlations for hypergraph (2-3) [{default}]: ",
-        "hypergraph_threshold_prompt": "Correlation threshold for hypergraph edges [{default}]: ",
-        "hypergraph_symmetry_analysis_prompt": "Perform symmetry analysis (parity, permutation)? (y/n) [{default}]: ",
-        "hypergraph_plot_transitions_prompt": "Plot error transition graph over time? (y/n) [{default}]: ",
-    }
-)
 
 
 def collect_optional_parameters(args: Dict) -> Dict:
     """
     Collects optional parameters (error rate, Z/I probabilities, T1/T2, custom params) from the user.
-
-    Args:
-        args (Dict): Current parameters.
-
-    Returns:
-        Dict: Updated parameters with optional settings.
     """
     # Optional parameters with confirmation
     if input_handler.prompt_yes_no("custom_error_rate_prompt", default="n"):
@@ -392,21 +439,11 @@ def collect_optional_parameters(args: Dict) -> Dict:
     return args
 
 
-# src/main.py (only showing the updated validate_and_prompt function)
-
-
 def validate_and_prompt(args: Dict) -> Dict:
     """
     Validates parameters and prompts the user for adjustments if needed.
-
-    Args:
-        args (Dict): Current parameters.
-
-    Returns:
-        Dict: Updated parameters after validation and prompting.
     """
-    # Check if noise type is single-qubit and num_qubits > 1
-    # Warning is now handled by validate_parameters, so we just prompt for action
+    # Single-qubit noise with multi-qubit system
     if args["noise_type"] in SINGLE_QUBIT_NOISE_TYPES and args["num_qubits"] > 1:
         choice = input_handler.get_input(
             "single_qubit_noise_prompt", "p", ["p", "switch", "c"]
@@ -439,7 +476,7 @@ def validate_and_prompt(args: Dict) -> Dict:
             print_message("config_cancelled")
             return collect_parameters(interactive=True)
 
-    # Check for hypergraph visualization compatibility: Single-qubit noise with multi-qubit states
+    # Hypergraph + single-qubit noise
     if args["visualization_type"] == "hypergraph":
         if args["noise_type"] in SINGLE_QUBIT_NOISE_TYPES and args["num_qubits"] > 1:
             print_message(
@@ -478,12 +515,11 @@ def validate_and_prompt(args: Dict) -> Dict:
                 print_message("switched_to_plot")
                 args = switch_to_plot(args)
 
-    # Set visualization-specific settings after any potential switch
+    # Re-check if we switched to plot
     if args["visualization_type"] == "plot":
         args = switch_to_plot(args)
 
-    # Check if noise type is single-qubit and sim_mode is density with noise enabled
-    # Warning is now handled by validate_parameters, so we just prompt for action
+    # Single-qubit noise in density mode
     if (
         args["sim_mode"] == "density"
         and args["noise_type"] in SINGLE_QUBIT_NOISE_TYPES
@@ -523,7 +559,7 @@ def validate_and_prompt(args: Dict) -> Dict:
             print_message("config_cancelled")
             return collect_parameters(interactive=True)
 
-    # Check for hypergraph visualization compatibility: Density mode with no noise
+    # Hypergraph + density mode + no noise
     if (
         args["visualization_type"] == "hypergraph"
         and args["sim_mode"] == "density"
@@ -542,32 +578,34 @@ def validate_and_prompt(args: Dict) -> Dict:
             print_message("switched_to_plot_density")
             args = switch_to_plot(args)
 
+    # If user sets hypergraph transitions but not noise_stepped, disable transitions
+    if (
+        args["visualization_type"] == "hypergraph"
+        and args.get("hypergraph_config", {}).get("plot_transitions", False)
+        and not args.get("noise_stepped", False)
+    ):
+        print_message("hypergraph_transitions_dependency")
+        args["hypergraph_config"]["plot_transitions"] = False
+
     return args
 
 
 def collect_parameters(interactive: bool = True) -> Dict:
     """
     Collects experiment parameters either interactively or from command-line arguments.
-
-    Args:
-        interactive (bool): Whether to collect parameters interactively.
-
-    Returns:
-        Dict: Collected experiment parameters.
     """
     args = apply_defaults({})
 
     if interactive:
-        # Collect core parameters
+        # Core
         args = collect_core_parameters(args)
-
-        # Collect visualization settings
+        # Stepped noise
+        args = collect_stepped_noise_parameters(args)
+        # Visualization
         args = collect_visualization_settings(args)
-
-        # Validate and prompt for adjustments
+        # Validate
         args = validate_and_prompt(args)
-
-        # Collect optional parameters
+        # Optional
         args = collect_optional_parameters(args)
 
     return validate_parameters(args)
@@ -578,14 +616,8 @@ def run_and_visualize(
 ) -> Tuple[QuantumCircuit, Union[Dict, DensityMatrix], bool]:
     """
     Runs the experiment and handles visualization.
-
-    Args:
-        args (Dict): Experiment parameters.
-        experiment_id (str): Unique identifier for the experiment.
-
-    Returns:
-        Tuple[QuantumCircuit, Union[Dict, DensityMatrix], bool]: Circuit, result, and flag indicating if plot was closed with Ctrl+C.
     """
+    # Filter out visualization-only keys
     args_for_experiment = {
         key: value
         for key, value in args.items()
@@ -597,28 +629,105 @@ def run_and_visualize(
             "show_real",
             "show_imag",
             "hypergraph_config",
+            "noise_stepped",
+            "noise_start",
+            "noise_end",
+            "noise_steps",
+            "z_prob_start",
+            "z_prob_end",
+            "i_prob_start",
+            "i_prob_end",
+            "t1_start",
+            "t1_end",
+            "t2_start",
+            "t2_end",
         ]
     }
     args_for_experiment["experiment_id"] = experiment_id
 
-    # Run the experiment with a progress spinner
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]Running experiment..."),
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Experiment", total=None)
-        qc, result = run_experiment(**args_for_experiment)
-        progress.update(task, completed=True)
+    # Handle time-stepped noise
+    if args.get("noise_stepped", False) and args["noise_enabled"]:
+        # Generate stepped parameters
+        error_rates = (
+            np.linspace(args["noise_start"], args["noise_end"], args["noise_steps"])
+            if "noise_start" in args and "noise_end" in args
+            else np.array([args["error_rate"]] * args["noise_steps"])
+        )
+        z_probs = (
+            np.linspace(args["z_prob_start"], args["z_prob_end"], args["noise_steps"])
+            if "z_prob_start" in args and "z_prob_end" in args
+            else np.array(
+                [args["z_prob"] if args["z_prob"] is not None else 0.0]
+                * args["noise_steps"]
+            )
+        )
+        i_probs = (
+            np.linspace(args["i_prob_start"], args["i_prob_end"], args["noise_steps"])
+            if "i_prob_start" in args and "i_prob_end" in args
+            else np.array(
+                [args["i_prob"] if args["i_prob"] is not None else 0.0]
+                * args["noise_steps"]
+            )
+        )
+        t1_values = (
+            np.linspace(args["t1_start"], args["t1_end"], args["noise_steps"])
+            if "t1_start" in args and "t1_end" in args
+            else np.array(
+                [args["t1"] if args["t1"] is not None else 100.0] * args["noise_steps"]
+            )
+        )
+        t2_values = (
+            np.linspace(args["t2_start"], args["t2_end"], args["noise_steps"])
+            if "t2_start" in args and "t2_end" in args
+            else np.array(
+                [args["t2"] if args["t2"] is not None else 80.0] * args["noise_steps"]
+            )
+        )
 
-    # Save results
+        results = []
+        for idx in tqdm(range(args["noise_steps"]), desc="Running stepped simulations"):
+            print_message(
+                "running_step",
+                step=idx + 1,
+                total=args["noise_steps"],
+                error_rate=error_rates[idx],
+                z_prob=z_probs[idx],
+                i_prob=i_probs[idx],
+                t1=t1_values[idx],
+                t2=t2_values[idx],
+            )
+            args_for_experiment["error_rate"] = error_rates[idx]
+            args_for_experiment["z_prob"] = (
+                z_probs[idx] if z_probs[idx] != 0.0 else None
+            )
+            args_for_experiment["i_prob"] = (
+                i_probs[idx] if i_probs[idx] != 0.0 else None
+            )
+            args_for_experiment["t1"] = (
+                t1_values[idx] if t1_values[idx] != 100.0 else None
+            )
+            args_for_experiment["t2"] = (
+                t2_values[idx] if t2_values[idx] != 80.0 else None
+            )
+
+            qc, result = run_experiment(**args_for_experiment)
+            results.append(result)
+        time_steps = error_rates.tolist()  # Use error rates as "time steps"
+    else:
+        # Single run
+        qc, result = run_experiment(**args_for_experiment)
+        results = result
+        time_steps = None
+
+    # Save results (timestamp first)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = (
         f"{timestamp}_experiment_results_{args['num_qubits']}q_{args['state_type']}_"
         f"{args['noise_type']}_{args['sim_mode']}.json"
     )
+
     ExperimentUtils.save_results(
-        result,
+        results[-1] if args.get("noise_stepped", False) else results,
         circuit=qc,
         experiment_params=args_for_experiment,
         filename=filename,
@@ -629,11 +738,17 @@ def run_and_visualize(
     # Debug log to confirm visualization type
     print_message("debug_viz_type", viz_type=args["visualization_type"])
 
+    # If noise stepped is enabled and visualization type is "plot", use the last result;
+    # otherwise, pass the entire results (e.g., for hypergraph visualization)
+    if args.get("noise_stepped", False) and args["visualization_type"] == "plot":
+        viz_result = results[-1]
+    else:
+        viz_result = results
+
     # Handle visualization
     hypergraph_config = args.get("hypergraph_config", {})
-    time_steps = args.get("time_steps", None)
     plot_closed_with_ctrl_c = handle_visualization(
-        result,
+        viz_result,
         args,
         args["sim_mode"],
         args["state_type"],
@@ -645,7 +760,7 @@ def run_and_visualize(
         time_steps=time_steps,
     )
 
-    return qc, result, plot_closed_with_ctrl_c
+    return qc, results, plot_closed_with_ctrl_c
 
 
 @click.command()
@@ -698,7 +813,8 @@ def main(
     """
     Quantum Experiment Interactive Runner
 
-    A CLI tool to run quantum experiments with configurable parameters, supporting interactive and non-interactive modes.
+    A CLI tool to run quantum experiments with configurable parameters,
+    supporting interactive and non-interactive modes.
     """
     if interactive:
         interactive_experiment()
@@ -724,7 +840,6 @@ def main(
             "custom_params": None,
         }
         args = apply_defaults(args)
-
         experiment_id = str(uuid.uuid4())
         qc, result, _ = run_and_visualize(args, experiment_id)
 
@@ -732,9 +847,6 @@ def main(
 def interactive_experiment():
     """
     Runs the quantum experiment interactively with rerun and skip options.
-
-    Users can choose default settings, manually enter parameters, or modify them after an experiment.
-    Results are saved and optionally visualized with non-blocking plots, closable with Ctrl+C.
     """
     while True:
         print_message("welcome")

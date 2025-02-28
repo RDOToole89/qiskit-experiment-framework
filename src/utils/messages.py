@@ -1,5 +1,3 @@
-# src/utils/messages.py
-
 """
 Centralized lookup table for console messages used in the Quantum Experiment Interactive Runner.
 """
@@ -37,6 +35,27 @@ MESSAGES = {
     "lattice_type_prompt": "Lattice type (1d/2d) [{default}]: ",
     "custom_params_prompt": "Set custom params? (y/n) [{default}]: ",
     "custom_params_value_prompt": "Enter custom params as JSON (press Enter for none): ",
+    # Time-stepped noise prompts
+    "noise_stepped_prompt": "Enable time-stepped noise simulation? (y/n) [{default}]: ",
+    "noise_steps_prompt": "Number of steps for the noise range? [{default}]: ",
+    "custom_error_rate_stepped_prompt": "Use a stepped error_rate? (y/n) [{default}]: ",
+    "noise_start_prompt": "Enter start error rate [{default}]: ",
+    "noise_end_prompt": "Enter end error rate [{default}]: ",
+    "custom_zi_probs_stepped_prompt": "Use stepped Z/I probabilities? (y/n) [{default}]: ",
+    "z_prob_start_prompt": "Z probability start [{default}]: ",
+    "z_prob_end_prompt": "Z probability end [{default}]: ",
+    "i_prob_start_prompt": "I probability start [{default}]: ",
+    "i_prob_end_prompt": "I probability end [{default}]: ",
+    "custom_t1t2_stepped_prompt": "Use stepped T1/T2? (y/n) [{default}]: ",
+    "t1_start_prompt": "T1 start (µs) [{default}]: ",
+    "t1_end_prompt": "T1 end (µs) [{default}]: ",
+    "t2_start_prompt": "T2 start (µs) [{default}]: ",
+    "t2_end_prompt": "T2 end (µs) [{default}]: ",
+    # Hypergraph-specific prompts
+    "hypergraph_max_order_prompt": "Maximum correlation order (2-3) [{default}]: ",
+    "hypergraph_threshold_prompt": "Correlation threshold for hypergraph [{default}]: ",
+    "hypergraph_symmetry_analysis_prompt": "Perform symmetry analysis? (y/n) [{default}]: ",
+    "hypergraph_plot_transitions_prompt": "Plot error transitions over time? (y/n) [{default}]: ",
     # Prompt for proceeding with parameters
     "proceed_prompt": "Proceed with these parameters? (y/n) [{default}]: ",
     # Validation warnings and prompts
@@ -90,6 +109,7 @@ MESSAGES = {
     "rerun_same": "\n[bold blue]🔁 Rerunning with same parameters...[/bold blue]\n",
     "restart_params": "\n[bold blue]🆕 Restarting parameter selection...[/bold blue]\n",
     "rerun_prompt": "\n➡️ Rerun? (r/same, n/new, q/quit) [{default}]: ",
+    "running_step": "Running step {step} of {total}: error_rate={error_rate}, z_prob={z_prob}, i_prob={i_prob}, t1={t1}, t2={t2}",
     "params_discarded": "[bold yellow]Parameters discarded. Returning to prompt...[/bold yellow]",
     "goodbye": "\n[bold yellow]👋 Exiting Quantum Experiment Runner. Goodbye![/bold yellow]",
 }
