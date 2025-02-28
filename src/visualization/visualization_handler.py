@@ -4,6 +4,8 @@ from typing import Dict, Union
 from qiskit.quantum_info import DensityMatrix
 import numpy as np
 from src.visualization import Visualizer
+from src.visualization.hypergraph import plot_hypergraph
+from typing import Optional, List
 
 
 def handle_visualization(
@@ -15,6 +17,8 @@ def handle_visualization(
     noise_enabled: bool,
     save_plot: str,
     show_plot_nonblocking: callable,
+    config: Optional[Dict] = None,
+    time_steps: Optional[List[float]] = None,
 ) -> bool:
     """
     Handles visualization based on the specified visualization type.
@@ -28,6 +32,8 @@ def handle_visualization(
         noise_enabled (bool): Whether noise is enabled.
         save_plot (str): Path to save the plot, if any.
         show_plot_nonblocking (callable): Function to show plots non-blockingly.
+        config (Dict, optional): Visualization configuration.
+        time_steps (List[float], optional): Timesteps for dynamic visualization.
 
     Returns:
         bool: True if the plot was closed with Enter, False if closed with Ctrl+C.
@@ -92,19 +98,15 @@ def handle_visualization(
                 )
             )
         )
-        if save_plot:
-            Visualizer.plot_hypergraph(
-                correlation_data,
-                state_type=state_type,
-                noise_type=noise_type if noise_enabled else None,
-                save_path=save_plot,
-            )
-        else:
-            plot_closed_with_ctrl_c = not show_plot_nonblocking(
-                Visualizer.plot_hypergraph,
-                correlation_data,
-                state_type=state_type,
-                noise_type=noise_type if noise_enabled else None,
-            )
+        plot_hypergraph(
+            correlation_data,
+            state_type=state_type,
+            noise_type=noise_type if noise_enabled else None,
+            save_path=save_plot,
+            time_steps=time_steps,
+            config=config,
+        )
+        # In interactive mode, plot_closed_with_ctrl_c is not set since hypergraph plotting
+        # doesn't use show_plot_nonblocking (unless modified to do so)
 
     return plot_closed_with_ctrl_c

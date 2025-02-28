@@ -254,6 +254,9 @@ def collect_core_parameters(args: Dict) -> Dict:
     return args
 
 
+# src/main.py (only showing relevant updated sections)
+
+
 def collect_visualization_settings(args: Dict) -> Dict:
     """
     Collects visualization-related settings from the user.
@@ -287,7 +290,47 @@ def collect_visualization_settings(args: Dict) -> Dict:
             except ValueError:
                 return collect_parameters(interactive=True)
 
+    # Hypergraph-specific settings
+    if args["visualization_type"] == "hypergraph":
+        # Initialize hypergraph config
+        args["hypergraph_config"] = {}
+
+        # Maximum order of correlations
+        max_order = input_handler.get_numeric_input(
+            "hypergraph_max_order_prompt", "2", int
+        )
+        args["hypergraph_config"]["max_order"] = max_order
+
+        # Correlation threshold
+        default_threshold = "0.1" if args["sim_mode"] == "qasm" else "0.01"
+        threshold = input_handler.get_numeric_input(
+            "hypergraph_threshold_prompt", default_threshold, float
+        )
+        args["hypergraph_config"]["threshold"] = threshold
+
+        # Symmetry analysis
+        args["hypergraph_config"]["symmetry_analysis"] = input_handler.prompt_yes_no(
+            "hypergraph_symmetry_analysis_prompt", default="n"
+        )
+
+        # Plot error transitions (only if time_steps are provided)
+        if "time_steps" in args:
+            args["hypergraph_config"]["plot_transitions"] = input_handler.prompt_yes_no(
+                "hypergraph_plot_transitions_prompt", default="n"
+            )
+
     return args
+
+
+# Add new prompts to src/utils/messages.py
+MESSAGES.update(
+    {
+        "hypergraph_max_order_prompt": "Maximum order of correlations for hypergraph (2-3) [{default}]: ",
+        "hypergraph_threshold_prompt": "Correlation threshold for hypergraph edges [{default}]: ",
+        "hypergraph_symmetry_analysis_prompt": "Perform symmetry analysis (parity, permutation)? (y/n) [{default}]: ",
+        "hypergraph_plot_transitions_prompt": "Plot error transition graph over time? (y/n) [{default}]: ",
+    }
+)
 
 
 def collect_optional_parameters(args: Dict) -> Dict:
@@ -553,6 +596,7 @@ def run_and_visualize(
             "min_occurrences",
             "show_real",
             "show_imag",
+            "hypergraph_config",
         ]
     }
     args_for_experiment["experiment_id"] = experiment_id
@@ -570,8 +614,8 @@ def run_and_visualize(
     # Save results
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = (
-        f"results/experiment_results_{args['num_qubits']}q_{args['state_type']}_"
-        f"{args['noise_type']}_{args['sim_mode']}_{timestamp}.json"
+        f"{timestamp}_experiment_results_{args['num_qubits']}q_{args['state_type']}_"
+        f"{args['noise_type']}_{args['sim_mode']}.json"
     )
     ExperimentUtils.save_results(
         result,
@@ -586,6 +630,8 @@ def run_and_visualize(
     print_message("debug_viz_type", viz_type=args["visualization_type"])
 
     # Handle visualization
+    hypergraph_config = args.get("hypergraph_config", {})
+    time_steps = args.get("time_steps", None)
     plot_closed_with_ctrl_c = handle_visualization(
         result,
         args,
@@ -595,6 +641,8 @@ def run_and_visualize(
         args["noise_enabled"],
         args.get("save_plot"),
         show_plot_nonblocking,
+        config=hypergraph_config,
+        time_steps=time_steps,
     )
 
     return qc, result, plot_closed_with_ctrl_c

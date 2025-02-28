@@ -10,10 +10,12 @@ from rich.text import Text
 
 console = Console()
 
+
 class RichHandler(logging.Handler):
     """
     A custom logging handler that uses rich to render console output with markup.
     """
+
     def __init__(self, level: int = logging.NOTSET):
         super().__init__(level)
         self.console = console
@@ -27,11 +29,13 @@ class RichHandler(logging.Handler):
         except Exception:
             self.handleError(record)
 
+
 class StructuredFormatter(logging.Formatter):
     """
     Custom formatter that supports both human-readable logs and structured JSON for analysis.
     Formats messages with rich markup for console output.
     """
+
     def __init__(self, is_rich_handler: bool = False):
         super().__init__()
         self.is_rich_handler = is_rich_handler
@@ -56,7 +60,7 @@ class StructuredFormatter(logging.Formatter):
             "INFO": "green",
             "WARNING": "yellow",
             "ERROR": "red",
-            "DEBUG": "cyan"
+            "DEBUG": "cyan",
         }
         level_color = level_colors.get(record.levelname, "white")
 
@@ -69,7 +73,9 @@ class StructuredFormatter(logging.Formatter):
                     f"(Experiment ID: {log_entry['experiment_id']})[/bold {level_color}]"
                 )
                 if hasattr(record, "extra_info"):
-                    message += f" [dim](Extra: {json.dumps(log_entry['extra_info'])})[/dim]"
+                    message += (
+                        f" [dim](Extra: {json.dumps(log_entry['extra_info'])})[/dim]"
+                    )
                 return message
             elif record.levelname in ["DEBUG", "ERROR"]:
                 message = (
@@ -79,16 +85,19 @@ class StructuredFormatter(logging.Formatter):
                     f"[{log_entry['filename']}:{log_entry['lineno']}][/bold {level_color}]"
                 )
                 if hasattr(record, "extra_info"):
-                    message += f" [dim](Extra: {json.dumps(log_entry['extra_info'])})[/dim]"
+                    message += (
+                        f" [dim](Extra: {json.dumps(log_entry['extra_info'])})[/dim]"
+                    )
                 return message
         # For file or structured JSON logging: return JSON
         return json.dumps(log_entry)
+
 
 def setup_logger(
     log_level: str = "INFO",
     log_to_file: bool = True,
     log_to_console: bool = True,
-    structured_log_file: Optional[str] = None
+    structured_log_file: Optional[str] = None,
 ) -> logging.Logger:
     """
     Configures logging with support for file, console, and structured JSON output.
@@ -104,9 +113,10 @@ def setup_logger(
     """
     log_dir = "logs"
     os.makedirs(log_dir, exist_ok=True)
-    log_filename = os.path.join(
-        log_dir, f"experiment_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
-    )
+
+    # Ensure timestamped log filename
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_filename = os.path.join(log_dir, f"{timestamp}_experiment.log")
 
     # Create logger
     logger = logging.getLogger("QuantumExperiment")
@@ -137,11 +147,21 @@ def setup_logger(
         logger.addHandler(handler)
 
     # Initial log to confirm setup
-    logger.debug("Logger configured for quantum experiment utilities", extra={"experiment_id": "N/A"})
+    logger.debug(
+        "Logger configured for quantum experiment utilities",
+        extra={"experiment_id": "N/A"},
+    )
     return logger
 
+
 # Helper to attach experiment ID to log records
-def log_with_experiment_id(logger: logging.Logger, level: str, message: str, experiment_id: str, extra_info: Optional[dict] = None):
+def log_with_experiment_id(
+    logger: logging.Logger,
+    level: str,
+    message: str,
+    experiment_id: str,
+    extra_info: Optional[dict] = None,
+):
     """
     Logs a message with an experiment ID and optional extra info.
 

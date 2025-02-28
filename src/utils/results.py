@@ -10,10 +10,12 @@ from datetime import datetime
 
 logger = logging.getLogger("QuantumExperiment.Utils")
 
+
 class ComplexEncoder(json.JSONEncoder):
     """
     Custom JSON encoder to handle complex numbers and NumPy arrays.
     """
+
     def default(self, obj):
         if isinstance(obj, complex):
             return {"real": obj.real, "imag": obj.imag}
@@ -23,7 +25,10 @@ class ComplexEncoder(json.JSONEncoder):
             return {"real": obj.real, "imag": obj.imag}
         return json.JSONEncoder.default(self, obj)
 
-def compute_fidelity(density_matrix: DensityMatrix, reference_state: Union[DensityMatrix, np.ndarray]) -> float:
+
+def compute_fidelity(
+    density_matrix: DensityMatrix, reference_state: Union[DensityMatrix, np.ndarray]
+) -> float:
     """
     Computes the fidelity between the density matrix and a reference state.
 
@@ -38,6 +43,7 @@ def compute_fidelity(density_matrix: DensityMatrix, reference_state: Union[Densi
         reference_state = DensityMatrix(reference_state)
     return state_fidelity(density_matrix, reference_state)
 
+
 def get_circuit_stats(circuit: Any) -> Dict[str, int]:
     """
     Extracts basic circuit statistics.
@@ -51,15 +57,16 @@ def get_circuit_stats(circuit: Any) -> Dict[str, int]:
     return {
         "depth": circuit.depth(),
         "num_gates": sum(circuit.count_ops().values()),
-        "num_qubits": circuit.num_qubits
+        "num_qubits": circuit.num_qubits,
     }
+
 
 def save_results(
     result: Union[Dict, DensityMatrix],
     experiment_params: Dict[str, Any],
     circuit: Any,
     filename: str = "experiment_results.json",
-    experiment_id: str = "N/A"
+    experiment_id: str = "N/A",
 ) -> None:
     """
     Saves experiment results with metadata in a structured format.
@@ -81,7 +88,7 @@ def save_results(
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "parameters": experiment_params,
         "circuit_stats": get_circuit_stats(circuit),
-        "results": {}
+        "results": {},
     }
 
     # Handle qasm results
@@ -94,12 +101,17 @@ def save_results(
         }
         result_data["results"]["metadata_file"] = result.get("metadata_file", "N/A")
         # Expected states for validation (e.g., GHZ should have 000 and 111)
-        expected_states = {"000": 0.5, "111": 0.5} if experiment_params["state_type"] == "GHZ" else {}
+        expected_states = (
+            {"000": 0.5, "111": 0.5} if experiment_params["state_type"] == "GHZ" else {}
+        )
         result_data["results"]["expected_probabilities"] = expected_states
 
         with open(full_filename, "w") as f:
             json.dump(result_data, f, indent=4, cls=ComplexEncoder)
-        logger.info(f"Saved qasm results to {full_filename}", extra={"experiment_id": experiment_id})
+        logger.info(
+            f"Saved qasm results to {full_filename}",
+            extra={"experiment_id": experiment_id},
+        )
 
     # Handle density matrix results
     elif isinstance(result, DensityMatrix):
@@ -109,7 +121,7 @@ def save_results(
 
         # Compute fidelity against ideal state (e.g., pure GHZ state for 3 qubits)
         if experiment_params["state_type"] == "GHZ":
-            ideal_state = np.zeros(2**experiment_params["num_qubits"], dtype=complex)
+            ideal_state = np.zeros(2 ** experiment_params["num_qubits"], dtype=complex)
             ideal_state[0] = 1 / np.sqrt(2)  # |000⟩
             ideal_state[-1] = 1 / np.sqrt(2)  # |111⟩
             fidelity = compute_fidelity(result, ideal_state)
@@ -131,12 +143,18 @@ def save_results(
 
         with open(full_filename, "w") as f:
             json.dump(result_data, f, indent=4, cls=ComplexEncoder)
-        logger.info(f"Saved density matrix results to {full_filename}", extra={"experiment_id": experiment_id})
+        logger.info(
+            f"Saved density matrix results to {full_filename}",
+            extra={"experiment_id": experiment_id},
+        )
 
     else:
-        raise ValueError(f"Unsupported result type: {type(result)}. Expected dict or DensityMatrix.")
+        raise ValueError(
+            f"Unsupported result type: {type(result)}. Expected dict or DensityMatrix."
+        )
 
     print(f"✅ Results saved to {full_filename}")
+
 
 def load_results(filename: str) -> Dict[str, Any]:
     """
