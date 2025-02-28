@@ -34,9 +34,15 @@ from src.run_experiment import run_experiment
 from src.utils import logger, results as ExperimentUtils
 from src.visualization import Visualizer
 from src.config.params import apply_defaults, validate_parameters
-from src.config.constants import VALID_NOISE_TYPES, VALID_STATE_TYPES
+from src.config.constants import (
+    VALID_NOISE_TYPES,
+    VALID_STATE_TYPES,
+    NOISE_SHORTCUTS,
+    SINGLE_QUBIT_NOISE_TYPES,
+)
 from src.config.defaults import DEFAULT_ERROR_RATE
-from src.noise_models.noise_factory import NOISE_CLASSES  # Import NOISE_CLASSES to identify single-qubit noise
+from src.noise_models.noise_factory import NOISE_CLASSES
+from src.utils.messages import MESSAGES  # Import the messages lookup table
 
 # Suppress Qiskit deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -46,33 +52,131 @@ logger_instance = logger.setup_logger(
     log_level="INFO",
     log_to_file=True,
     log_to_console=True,
-    structured_log_file="logs/structured_logs.json"
+    structured_log_file="logs/structured_logs.json",
 )
 
 # Initialize Rich console for better formatting
 console = Console()
 
-def get_input(prompt: str, default: str, valid_options: Optional[list] = None) -> str:
+
+def print_message(key: str, **kwargs) -> None:
     """
-    Helper to get user input with case-insensitive handling and validation.
+    Prints a console message from the MESSAGES lookup table, formatting it with provided kwargs.
 
     Args:
-        prompt (str): Input prompt message.
+        key (str): The key to look up the message in MESSAGES.
+        **kwargs: Values to format the message with (e.g., noise_type, num_qubits).
+    """
+    message = MESSAGES.get(key, f"[bold red]Missing message for key: {key}[/bold red]")
+    console.print(message.format(**kwargs))
+
+
+def get_input(
+    prompt_key: str,
+    default: str,
+    valid_options: Optional[list] = None,
+    valid_options_display: Optional[list] = None,
+    **kwargs,
+) -> str:
+    """
+    Helper to get user input with case-insensitive handling and validation, using messages from MESSAGES.
+
+    Args:
+        prompt_key (str): The key for the prompt message in MESSAGES.
         default (str): Default value if user presses Enter.
         valid_options (list, optional): List of valid options for validation.
+        valid_options_display (list, optional): List of options to display in the prompt (defaults to valid_options).
+        **kwargs: Additional values to format the prompt message with.
 
     Returns:
         str: User input or default, normalized to lowercase.
     """
     while True:
         try:
-            user_input = console.input(f"[bold cyan]{prompt}[/bold cyan] ").strip().lower() or default.lower()
-            if not valid_options or user_input in [opt.lower() for opt in valid_options]:
+            prompt = MESSAGES.get(
+                prompt_key, f"[bold red]Missing prompt for key: {prompt_key}[/bold red]"
+            )
+            # Only include valid_options in kwargs if it's provided and needed
+            format_kwargs = {"default": default}
+            if valid_options is not None:
+                format_kwargs["valid_options"] = (
+                    valid_options_display
+                    if valid_options_display is not None
+                    else valid_options
+                )
+            format_kwargs.update(kwargs)
+            user_input = (
+                console.input(prompt.format(**format_kwargs)).strip().lower()
+                or default.lower()
+            )
+            if not valid_options or user_input in [
+                opt.lower() for opt in valid_options
+            ]:
                 return user_input
-            console.print(f"[bold red]⚠️ Invalid input: '{user_input}'. Please choose from {valid_options}.[/bold red]")
+            print_message("invalid_input", input=user_input, options=valid_options)
         except KeyboardInterrupt:
-            console.print("\n[bold yellow]Operation cancelled, returning to prompt...[/bold yellow]")
+            print_message("operation_cancelled")
             return default.lower()
+
+
+def get_numeric_input(
+    prompt_key: str, default: str, expected_type: type = int
+) -> Union[int, float]:
+    """
+    Prompts the user for a numeric input, handling errors gracefully.
+
+    Args:
+        prompt_key (str): The key for the prompt message in MESSAGES.
+        default (str): Default value as a string.
+        expected_type (type): Expected type (int or float).
+
+    Returns:
+        Union[int, float]: The numeric value.
+    """
+    while True:
+        try:
+            value = get_input(prompt_key, default)
+            return expected_type(value)
+        except ValueError:
+            print_message(
+                "invalid_input", input=value, options=[expected_type.__name__]
+            )
+            return collect_parameters(interactive=True)
+
+
+def prompt_yes_no(key: str, default: str = "n") -> bool:
+    """
+    Prompts the user for a yes/no answer using messages from MESSAGES.
+
+    Args:
+        key (str): The key for the prompt message in MESSAGES.
+        default (str): Default value ("y" or "n").
+
+    Returns:
+        bool: True if yes, False if no.
+    """
+    return get_input(key, default, ["y", "n"]) == "y"
+
+
+def switch_to_plot(args: Dict) -> Dict:
+    """
+    Switches the visualization type to 'plot' and collects related settings.
+
+    Args:
+        args (Dict): Current parameters.
+
+    Returns:
+        Dict: Updated parameters with visualization type set to 'plot' and related settings.
+    """
+    args["visualization_type"] = "plot"
+    if args["sim_mode"] == "qasm":
+        args["min_occurrences"] = get_numeric_input("min_occurrences_prompt", "0")
+    else:  # density mode
+        real_imag = get_input("real_imag_prompt", "a", ["r", "i", "a"])
+        args["show_real"] = real_imag == "r"
+        args["show_imag"] = real_imag == "i"
+    return args
+
 
 def format_params(args: Dict) -> str:
     """
@@ -87,9 +191,17 @@ def format_params(args: Dict) -> str:
     params = {
         k: v
         for k, v in args.items()
-        if k not in ["visualization_type", "save_plot", "min_occurrences", "show_real", "show_imag"]
+        if k
+        not in [
+            "visualization_type",
+            "save_plot",
+            "min_occurrences",
+            "show_real",
+            "show_imag",
+        ]
     }
     return ", ".join(f"{k}={v}" for k, v in params.items() if v is not None)
+
 
 def display_params_summary(args: Dict) -> None:
     """
@@ -98,7 +210,9 @@ def display_params_summary(args: Dict) -> None:
     Args:
         args (Dict): Experiment parameters.
     """
-    table = Table(title="Experiment Parameters", show_header=True, header_style="bold magenta")
+    table = Table(
+        title="Experiment Parameters", show_header=True, header_style="bold magenta"
+    )
     table.add_column("Parameter", style="cyan")
     table.add_column("Value", style="green")
     params_to_display = {
@@ -108,16 +222,19 @@ def display_params_summary(args: Dict) -> None:
         "Noise Enabled": args["noise_enabled"],
         "Shots": args["shots"],
         "Simulation Mode": args["sim_mode"],
-        "Error Rate": args["error_rate"] if args["error_rate"] is not None else "Default",
+        "Error Rate": (
+            args["error_rate"] if args["error_rate"] is not None else "Default"
+        ),
         "Z Probability": args["z_prob"] if args["z_prob"] is not None else "Default",
         "I Probability": args["i_prob"] if args["i_prob"] is not None else "Default",
         "T1": args["t1"] if args["t1"] is not None else "Default",
         "T2": args["t2"] if args["t2"] is not None else "Default",
-        "Custom Params": args["custom_params"] if args["custom_params"] else "None"
+        "Custom Params": args["custom_params"] if args["custom_params"] else "None",
     }
     for param, value in params_to_display.items():
         table.add_row(param, str(value))
     console.print(table)
+
 
 def show_plot_nonblocking(visualizer_method, *args, **kwargs) -> bool:
     """
@@ -136,15 +253,303 @@ def show_plot_nonblocking(visualizer_method, *args, **kwargs) -> bool:
     plt.draw()  # Draw the plot
     plt.pause(0.1)  # Brief pause to show plot
     try:
-        input("Press Enter or Ctrl+C to continue...")  # Wait for user input or interrupt
+        input(
+            "Press Enter or Ctrl+C to continue..."
+        )  # Wait for user input or interrupt
         plt.close()  # Close plot
         return True  # Closed with Enter
     except KeyboardInterrupt:
         plt.close()  # Close plot on Ctrl+C
-        console.print("\n[bold yellow]Plot closed with Ctrl+C, returning to prompt...[/bold yellow]")
+        print_message("plot_closed_ctrl_c")
         return False  # Closed with Ctrl+C
     finally:
         plt.ioff()  # Disable interactive mode after closing
+
+
+def collect_core_parameters(args: Dict) -> Dict:
+    """
+    Collects core experiment parameters from the user.
+
+    Args:
+        args (Dict): Initial parameters with defaults.
+
+    Returns:
+        Dict: Updated parameters with core user inputs.
+    """
+    print_message("enter_parameters")
+
+    # Collect number of qubits
+    args["num_qubits"] = get_numeric_input("num_qubits_prompt", str(args["num_qubits"]))
+
+    # Collect noise type with shortcuts and auto-correction
+    noise_input = get_input(
+        "noise_type_prompt",
+        default=args["noise_type"].lower(),
+        valid_options=VALID_NOISE_TYPES + ["d", "p", "a", "z", "t", "b"],
+        valid_options_display=VALID_NOISE_TYPES,
+    )
+    args["noise_type"] = noise_input.upper()
+    args["noise_type"] = NOISE_SHORTCUTS.get(noise_input, args["noise_type"])
+
+    # Collect state type
+    args["state_type"] = get_input(
+        "state_type_prompt",
+        default=args["state_type"].lower(),
+        valid_options=VALID_STATE_TYPES,
+    ).upper()
+
+    # Collect noise enabled
+    args["noise_enabled"] = get_input(
+        "noise_enabled_prompt",
+        default=str(args["noise_enabled"]).lower(),
+        valid_options=["y", "yes", "t", "true", "n", "no", "f", "false"],
+    ) in ["y", "yes", "t", "true"]
+
+    # Collect simulation mode
+    args["sim_mode"] = get_input(
+        "sim_mode_prompt",
+        default=args["sim_mode"].lower(),
+        valid_options=["q", "d", "qasm", "density"],
+    )
+    args["sim_mode"] = (
+        "qasm"
+        if args["sim_mode"] in ["q", "qasm"]
+        else (
+            "density"
+            if args["sim_mode"] in ["d", "density"]
+            else args["sim_mode"].lower()
+        )
+    )
+
+    # Collect shots
+    args["shots"] = get_numeric_input("shots_prompt", str(args["shots"]))
+
+    return args
+
+
+def collect_visualization_settings(args: Dict) -> Dict:
+    """
+    Collects visualization-related settings from the user.
+
+    Args:
+        args (Dict): Current parameters.
+
+    Returns:
+        Dict: Updated parameters with visualization settings.
+    """
+    # Visualization selection
+    viz_choice = get_input(
+        "viz_type_prompt",
+        default="n",
+        valid_options=["p", "h", "n"],
+    )
+    args["visualization_type"] = (
+        "plot"
+        if viz_choice in ["p", "plot"]
+        else "hypergraph" if viz_choice in ["h", "hypergraph"] else "none"
+    )
+    if args["visualization_type"] != "none":
+        args["save_plot"] = get_input("save_plot_prompt", default="").strip() or None
+        if args["visualization_type"] == "plot" and args["sim_mode"] == "qasm":
+            args["min_occurrences"] = get_numeric_input("min_occurrences_prompt", "0")
+
+    return args
+
+
+def collect_optional_parameters(args: Dict) -> Dict:
+    """
+    Collects optional parameters (error rate, Z/I probabilities, T1/T2, custom params) from the user.
+
+    Args:
+        args (Dict): Current parameters.
+
+    Returns:
+        Dict: Updated parameters with optional settings.
+    """
+    # Optional parameters with confirmation
+    if prompt_yes_no("custom_error_rate_prompt", default="n"):
+        args["error_rate"] = get_numeric_input(
+            "error_rate_value_prompt", str(DEFAULT_ERROR_RATE), float
+        )
+    if args["noise_type"] == "PHASE_FLIP" and prompt_yes_no(
+        "custom_zi_probs_prompt", default="n"
+    ):
+        args["z_prob"] = get_numeric_input("z_prob_value_prompt", "0.5", float)
+        args["i_prob"] = get_numeric_input("i_prob_value_prompt", "0.5", float)
+    if args["noise_type"] == "THERMAL_RELAXATION" and prompt_yes_no(
+        "custom_t1t2_prompt", default="n"
+    ):
+        args["t1"] = get_numeric_input("t1_value_prompt", "100", float) * 1e-6
+        args["t2"] = get_numeric_input("t2_value_prompt", "80", float) * 1e-6
+    if args["state_type"] == "CLUSTER" and prompt_yes_no(
+        "custom_lattice_prompt", default="n"
+    ):
+        if "custom_params" not in args:
+            args["custom_params"] = {}
+        lattice_type = get_input("lattice_type_prompt", "1d", ["1d", "2d"])
+        args["custom_params"]["lattice"] = lattice_type
+    if prompt_yes_no("custom_params_prompt", default="n"):
+        custom_params_str = get_input("custom_params_value_prompt", default="").strip()
+        try:
+            args["custom_params"] = (
+                json.loads(custom_params_str) if custom_params_str else None
+            )
+        except json.JSONDecodeError:
+            print_message(
+                "invalid_input", input="custom params", options=["valid JSON"]
+            )
+            return collect_parameters(interactive=True)
+
+    return args
+
+
+def validate_and_prompt(args: Dict) -> Dict:
+    """
+    Validates parameters and prompts the user for adjustments if needed.
+
+    Args:
+        args (Dict): Current parameters.
+
+    Returns:
+        Dict: Updated parameters after validation and prompting.
+    """
+    # Check if noise type is single-qubit and num_qubits > 1
+    if args["noise_type"] in SINGLE_QUBIT_NOISE_TYPES and args["num_qubits"] > 1:
+        print_message(
+            "single_qubit_noise_warning",
+            noise_type=args["noise_type"],
+            num_qubits=args["num_qubits"],
+        )
+        choice = get_input("single_qubit_noise_prompt", "p", ["p", "switch", "c"])
+        if choice == "switch":
+            print_message("suggested_multi_qubit_noise_types")
+            new_noise = get_input(
+                "noise_type_prompt",
+                "depolarizing",
+                valid_options=[
+                    "d",
+                    "p",
+                    "t",
+                    "depolarizing",
+                    "phase_flip",
+                    "thermal_relaxation",
+                ],
+            )
+            args["noise_type"] = (
+                "DEPOLARIZING"
+                if new_noise in ["d", "depolarizing"]
+                else (
+                    "PHASE_FLIP"
+                    if new_noise in ["p", "phase_flip"]
+                    else "THERMAL_RELAXATION"
+                )
+            )
+            print_message("switched_noise_type", noise_type=args["noise_type"])
+        elif choice == "c":
+            print_message("config_cancelled")
+            return collect_parameters(interactive=True)
+
+    # Check for hypergraph visualization compatibility: Single-qubit noise with multi-qubit states
+    if args["visualization_type"] == "hypergraph":
+        if args["noise_type"] in SINGLE_QUBIT_NOISE_TYPES and args["num_qubits"] > 1:
+            print_message(
+                "hypergraph_single_qubit_warning",
+                noise_type=args["noise_type"],
+                num_qubits=args["num_qubits"],
+            )
+            choice = get_input(
+                "hypergraph_single_qubit_prompt", "p", ["p", "switch", "v"]
+            )
+            if choice == "switch":
+                print_message("suggested_multi_qubit_noise_types")
+                new_noise = get_input(
+                    "noise_type_prompt",
+                    "depolarizing",
+                    valid_options=[
+                        "d",
+                        "p",
+                        "t",
+                        "depolarizing",
+                        "phase_flip",
+                        "thermal_relaxation",
+                    ],
+                )
+                args["noise_type"] = (
+                    "DEPOLARIZING"
+                    if new_noise in ["d", "depolarizing"]
+                    else (
+                        "PHASE_FLIP"
+                        if new_noise in ["p", "phase_flip"]
+                        else "THERMAL_RELAXATION"
+                    )
+                )
+                print_message("switched_noise_type", noise_type=args["noise_type"])
+            elif choice == "v":
+                print_message("switched_to_plot")
+                args = switch_to_plot(args)
+
+    # Set visualization-specific settings after any potential switch
+    if args["visualization_type"] == "plot":
+        args = switch_to_plot(args)
+
+    # Check if noise type is single-qubit and sim_mode is density with noise enabled
+    if (
+        args["sim_mode"] == "density"
+        and args["noise_type"] in SINGLE_QUBIT_NOISE_TYPES
+        and args["noise_enabled"]
+    ):
+        print_message("density_noise_warning", noise_type=args["noise_type"])
+        choice = get_input("density_noise_prompt", "p", ["p", "switch", "c"])
+        if choice == "switch":
+            print_message("suggested_multi_qubit_noise_types")
+            new_noise = get_input(
+                "noise_type_prompt",
+                "depolarizing",
+                valid_options=[
+                    "d",
+                    "p",
+                    "t",
+                    "depolarizing",
+                    "phase_flip",
+                    "thermal_relaxation",
+                ],
+            )
+            args["noise_type"] = (
+                "DEPOLARIZING"
+                if new_noise in ["d", "depolarizing"]
+                else (
+                    "PHASE_FLIP"
+                    if new_noise in ["p", "phase_flip"]
+                    else "THERMAL_RELAXATION"
+                )
+            )
+            print_message("switched_noise_type", noise_type=args["noise_type"])
+        elif choice == "p":
+            args["noise_enabled"] = False
+            print_message("noise_disabled")
+        elif choice == "c":
+            print_message("config_cancelled")
+            return collect_parameters(interactive=True)
+
+    # Check for hypergraph visualization compatibility: Density mode with no noise
+    if (
+        args["visualization_type"] == "hypergraph"
+        and args["sim_mode"] == "density"
+        and not args["noise_enabled"]
+    ):
+        print_message(
+            "hypergraph_density_no_noise_warning", state_type=args["state_type"]
+        )
+        choice = get_input("hypergraph_density_no_noise_prompt", "p", ["p", "e", "v"])
+        if choice == "e":
+            args["noise_enabled"] = True
+            print_message("noise_enabled")
+        elif choice == "v":
+            print_message("switched_to_plot_density")
+            args = switch_to_plot(args)
+
+    return args
+
 
 def collect_parameters(interactive: bool = True) -> Dict:
     """
@@ -159,257 +564,24 @@ def collect_parameters(interactive: bool = True) -> Dict:
     args = apply_defaults({})
 
     if interactive:
-        console.print("\n[bold blue]🔹 Enter your experiment parameters below:[/bold blue]\n")
+        # Collect core parameters
+        args = collect_core_parameters(args)
 
-        # Collect number of qubits first
-        args["num_qubits"] = int(
-            get_input(f"Number of qubits [{args['num_qubits']}]: ", str(args["num_qubits"]))
-        )
+        # Collect visualization settings
+        args = collect_visualization_settings(args)
 
-        # Collect noise type with shortcuts and auto-correction
-        noise_input = get_input(
-            f"Enter noise type {VALID_NOISE_TYPES} (d/p/a/z/t/b) [{args['noise_type'].lower()}]: ",
-            args["noise_type"].lower(),
-        )
-        # Convert noise type to uppercase immediately for consistency
-        args["noise_type"] = noise_input.upper()
-        # Map shortcuts to full names (e.g., "b" -> "BIT_FLIP")
-        noise_shortcuts = {
-            "d": "DEPOLARIZING",
-            "p": "PHASE_FLIP",
-            "a": "AMPLITUDE_DAMPING",
-            "z": "PHASE_DAMPING",
-            "t": "THERMAL_RELAXATION",
-            "b": "BIT_FLIP",
-        }
-        args["noise_type"] = noise_shortcuts.get(noise_input, args["noise_type"])
+        # Validate and prompt for adjustments
+        args = validate_and_prompt(args)
 
-        # Check if noise type is single-qubit and num_qubits > 1
-        single_qubit_noise_types = ["AMPLITUDE_DAMPING", "PHASE_DAMPING", "BIT_FLIP"]
-        if args["noise_type"] in single_qubit_noise_types and args["num_qubits"] > 1:
-            console.print(
-                f"[bold yellow]⚠️ Warning: {args['noise_type']} noise is designed for single-qubit systems, "
-                f"but you requested {args['num_qubits']} qubits. This noise will only be applied to "
-                "single-qubit gates ('id', 'u1', 'u2', 'u3').[/bold yellow]"
-            )
-            choice = get_input(
-                "Would you like to proceed with this configuration, switch to a multi-qubit noise type (e.g., DEPOLARIZING), or cancel? (p/switch/c) [p]: ",
-                "p",
-                ["p", "switch", "c"]
-            )
-            if choice == "switch":
-                console.print(
-                    "[bold blue]Suggested multi-qubit noise types: DEPOLARIZING, PHASE_FLIP, THERMAL_RELAXATION[/bold blue]"
-                )
-                new_noise = get_input(
-                    "Enter a new noise type (d/p/t for DEPOLARIZING/PHASE_FLIP/THERMAL_RELAXATION) [depolarizing]: ",
-                    "depolarizing",
-                    ["d", "p", "t", "depolarizing", "phase_flip", "thermal_relaxation"]
-                )
-                args["noise_type"] = (
-                    "DEPOLARIZING" if new_noise in ["d", "depolarizing"]
-                    else "PHASE_FLIP" if new_noise in ["p", "phase_flip"]
-                    else "THERMAL_RELAXATION"
-                )
-                console.print(f"[bold green]Switched noise type to {args['noise_type']}.[/bold green]")
-            elif choice == "c":
-                console.print("[bold yellow]Configuration cancelled. Returning to prompt...[/bold yellow]")
-                return collect_parameters(interactive=True)  # Restart parameter collection
-
-        # Visualization selection
-        viz_choice = get_input(
-            "\n🎨 Choose visualization type (p/plot, h/hypergraph, n/none) [n]: ",
-            "n",
-            ["p", "h", "n"],
-        )
-        args["visualization_type"] = (
-            "plot" if viz_choice in ["p", "plot"]
-            else "hypergraph" if viz_choice in ["h", "hypergraph"]
-            else "none"
-        )
-        if args["visualization_type"] != "none":
-            args["save_plot"] = (
-                get_input("Enter path to save plot (press Enter for display): ", "").strip()
-                or None
-            )
-
-        # Check for hypergraph visualization compatibility: Single-qubit noise with multi-qubit states
-        if args["visualization_type"] == "hypergraph":
-            if args["noise_type"] in single_qubit_noise_types and args["num_qubits"] > 1:
-                console.print(
-                    f"[bold yellow]⚠️ Warning: {args['noise_type']} noise with {args['num_qubits']} qubits may not be meaningful for hypergraph visualization. "
-                    "Single-qubit noise only applies to single-qubit gates and won't affect multi-qubit correlations (e.g., entanglement between qubits). "
-                    f"The hypergraph may only show the ideal correlations of the state without noise impact.[/bold yellow]"
-                )
-                choice = get_input(
-                    "Would you like to proceed with this configuration, switch to a multi-qubit noise type (e.g., DEPOLARIZING), or change visualization type? (p/switch/v) [p]: ",
-                    "p",
-                    ["p", "switch", "v"]
-                )
-                if choice == "switch":
-                    console.print(
-                        "[bold blue]Suggested multi-qubit noise types: DEPOLARIZING, PHASE_FLIP, THERMAL_RELAXATION[/bold blue]"
-                    )
-                    new_noise = get_input(
-                        "Enter a new noise type (d/p/t for DEPOLARIZING/PHASE_FLIP/THERMAL_RELAXATION) [depolarizing]: ",
-                        "depolarizing",
-                        ["d", "p", "t", "depolarizing", "phase_flip", "thermal_relaxation"]
-                    )
-                    args["noise_type"] = (
-                        "DEPOLARIZING" if new_noise in ["d", "depolarizing"]
-                        else "PHASE_FLIP" if new_noise in ["p", "phase_flip"]
-                        else "THERMAL_RELAXATION"
-                    )
-                    console.print(f"[bold green]Switched noise type to {args['noise_type']}.[/bold green]")
-                elif choice == "v":
-                    console.print("[bold blue]Switching visualization type to 'plot' (histogram/density matrix).[/bold blue]")
-                    args["visualization_type"] = "plot"
-
-        # Set visualization-specific settings after any potential switch
-        if args["visualization_type"] == "plot":
-            if args["sim_mode"] == "qasm":
-                args["min_occurrences"] = int(
-                    get_input(f"Minimum occurrences [0]: ", "0") or 0
-                )
-            else:  # density mode
-                real_imag = get_input(
-                    "Show real (r), imaginary (i), or absolute (a) values? [a]: ",
-                    "a",
-                    ["r", "i", "a"],
-                )
-                args["show_real"] = real_imag == "r"
-                args["show_imag"] = real_imag == "i"
-
-        # Core parameters
-        args["state_type"] = get_input(
-            f"State type {VALID_STATE_TYPES} [{args['state_type'].lower()}]: ",
-            args["state_type"].lower(),
-            VALID_STATE_TYPES,
-        ).upper()
-        args["noise_enabled"] = get_input(
-            f"Enable noise? (y/yes/t/true, n/no/f/false) [{str(args['noise_enabled']).lower()}]: ",
-            str(args["noise_enabled"]).lower(),
-            ["y", "yes", "t", "true", "n", "no", "f", "false"],
-        ) in ["y", "yes", "t", "true"]
-
-        # Collect simulation mode with shortcuts q/d for qasm/density
-        sim_input = get_input(
-            f"Simulation mode (q/qasm, d/density) [{args['sim_mode'].lower()}]: ",
-            args["sim_mode"].lower(),
-            ["q", "d", "qasm", "density"],
-        )
-        args["sim_mode"] = (
-            "qasm" if sim_input in ["q", "qasm"]
-            else "density" if sim_input in ["d", "density"]
-            else args["sim_mode"].lower()
-        )
-
-        # Check if noise type is single-qubit and sim_mode is density with noise enabled
-        if (
-            args["sim_mode"] == "density"
-            and args["noise_type"] in single_qubit_noise_types
-            and args["noise_enabled"]
-        ):
-            console.print(
-                f"[bold yellow]⚠️ Warning: {args['noise_type']} noise only applies to single-qubit gates, which are skipped in density matrix simulation mode. "
-                "No noise will be applied with this configuration.[/bold yellow]"
-            )
-            choice = get_input(
-                "Would you like to proceed with noise disabled, switch to a multi-qubit noise type (e.g., DEPOLARIZING), or cancel? (p/switch/c) [p]: ",
-                "p",
-                ["p", "switch", "c"]
-            )
-            if choice == "switch":
-                console.print(
-                    "[bold blue]Suggested multi-qubit noise types: DEPOLARIZING, PHASE_FLIP, THERMAL_RELAXATION[/bold blue]"
-                )
-                new_noise = get_input(
-                    "Enter a new noise type (d/p/t for DEPOLARIZING/PHASE_FLIP/THERMAL_RELAXATION) [depolarizing]: ",
-                    "depolarizing",
-                    ["d", "p", "t", "depolarizing", "phase_flip", "thermal_relaxation"]
-                )
-                args["noise_type"] = (
-                    "DEPOLARIZING" if new_noise in ["d", "depolarizing"]
-                    else "PHASE_FLIP" if new_noise in ["p", "phase_flip"]
-                    else "THERMAL_RELAXATION"
-                )
-                console.print(f"[bold green]Switched noise type to {args['noise_type']}.[/bold green]")
-            elif choice == "p":
-                args["noise_enabled"] = False  # Disable noise if proceeding
-                console.print("[bold yellow]Noise has been disabled for this configuration.[/bold yellow]")
-            elif choice == "c":
-                console.print("[bold yellow]Configuration cancelled. Returning to prompt...[/bold yellow]")
-                return collect_parameters(interactive=True)  # Restart parameter collection
-
-        # Check for hypergraph visualization compatibility: Density mode with no noise
-        if args["visualization_type"] == "hypergraph" and args["sim_mode"] == "density" and not args["noise_enabled"]:
-            console.print(
-                f"[bold yellow]⚠️ Warning: Hypergraph visualization in density matrix simulation mode with no noise enabled may not be insightful. "
-                f"The hypergraph will only show the ideal correlations of the {args['state_type']} state without noise effects.[/bold yellow]"
-            )
-            choice = get_input(
-                "Would you like to proceed with this configuration, enable noise, or change visualization type? (p/e/v) [p]: ",
-                "p",
-                ["p", "e", "v"]
-            )
-            if choice == "e":
-                args["noise_enabled"] = True
-                console.print("[bold green]Noise has been enabled for this configuration.[/bold green]")
-            elif choice == "v":
-                console.print("[bold blue]Switching visualization type to 'plot' (density matrix).[/bold blue]")
-                args["visualization_type"] = "plot"
-                real_imag = get_input(
-                    "Show real (r), imaginary (i), or absolute (a) values? [a]: ",
-                    "a",
-                    ["r", "i", "a"],
-                )
-                args["show_real"] = real_imag == "r"
-                args["show_imag"] = real_imag == "i"
-
-        args["shots"] = int(
-            get_input(f"Number of shots [{args['shots']}]: ", str(args["shots"]))
-        )
-
-        # Optional parameters with confirmation
-        if get_input("Set custom error rate? (y/n) [n]: ", "n", ["y", "n"]) == "y":
-            args["error_rate"] = float(
-                get_input(f"Error rate [{DEFAULT_ERROR_RATE}]: ", str(DEFAULT_ERROR_RATE))
-            )
-        if (
-            args["noise_type"] == "PHASE_FLIP"
-            and get_input("Set custom Z/I probabilities? (y/n) [n]: ", "n", ["y", "n"]) == "y"
-        ):
-            args["z_prob"] = float(get_input("Z probability for PHASE_FLIP [0.5]: ", "0.5"))
-            args["i_prob"] = float(get_input("I probability for PHASE_FLIP [0.5]: ", "0.5"))
-        if (
-            args["noise_type"] == "THERMAL_RELAXATION"
-            and get_input("Set custom T1/T2? (y/n) [n]: ", "n", ["y", "n"]) == "y"
-        ):
-            args["t1"] = (
-                float(get_input("T1 for THERMAL_RELAXATION (µs) [100]: ", "100")) * 1e-6
-            )
-            args["t2"] = (
-                float(get_input("T2 for THERMAL_RELAXATION (µs) [80]: ", "80")) * 1e-6
-            )
-        if (
-            args["state_type"] == "CLUSTER"
-            and get_input("Set custom lattice? (y/n) [n]: ", "n", ["y", "n"]) == "y"
-        ):
-            if "custom_params" not in args:
-                args["custom_params"] = {}
-            lattice_type = get_input("Lattice type (1d/2d) [1d]: ", "1d", ["1d", "2d"])
-            args["custom_params"]["lattice"] = lattice_type
-        if get_input("Set custom params? (y/n) [n]: ", "n", ["y", "n"]) == "y":
-            custom_params_str = get_input(
-                "Enter custom params as JSON (press Enter for none): ", ""
-            ).strip()
-            args["custom_params"] = (
-                json.loads(custom_params_str) if custom_params_str else None
-            )
+        # Collect optional parameters
+        args = collect_optional_parameters(args)
 
     return validate_parameters(args)
 
-def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, Union[Dict, DensityMatrix], bool]:
+
+def run_and_visualize(
+    args: Dict, experiment_id: str
+) -> Tuple[QuantumCircuit, Union[Dict, DensityMatrix], bool]:
     """
     Runs the experiment and handles visualization.
 
@@ -423,15 +595,20 @@ def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, U
     args_for_experiment = {
         key: value
         for key, value in args.items()
-        if key not in ["visualization_type", "save_plot", "min_occurrences", "show_real", "show_imag"]
+        if key
+        not in [
+            "visualization_type",
+            "save_plot",
+            "min_occurrences",
+            "show_real",
+            "show_imag",
+        ]
     }
     args_for_experiment["experiment_id"] = experiment_id
 
     # Run the experiment with a progress spinner
     with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]Running experiment..."),
-        transient=True
+        SpinnerColumn(), TextColumn("[bold blue]Running experiment..."), transient=True
     ) as progress:
         task = progress.add_task("Experiment", total=None)
         qc, result = run_experiment(**args_for_experiment)
@@ -443,11 +620,17 @@ def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, U
         f"results/experiment_results_{args['num_qubits']}q_{args['state_type']}_"
         f"{args['noise_type']}_{args['sim_mode']}_{timestamp}.json"
     )
-    ExperimentUtils.save_results(result, circuit=qc, experiment_params=args_for_experiment, filename=filename, experiment_id=experiment_id)
-    console.print(f"\n[bold green]✅ Experiment completed successfully![/bold green]\n📁 Results saved in `{filename}`")
+    ExperimentUtils.save_results(
+        result,
+        circuit=qc,
+        experiment_params=args_for_experiment,
+        filename=filename,
+        experiment_id=experiment_id,
+    )
+    print_message("experiment_completed", filename=filename)
 
     # Debug log to confirm visualization type
-    console.print(f"[bold blue]Debug: Visualization type is {args['visualization_type']}[/bold blue]")
+    print_message("debug_viz_type", viz_type=args["visualization_type"])
 
     # Handle visualization non-blockingly
     plot_closed_with_ctrl_c = False
@@ -527,19 +710,40 @@ def run_and_visualize(args: Dict, experiment_id: str) -> Tuple[QuantumCircuit, U
 
     return qc, result, plot_closed_with_ctrl_c
 
+
 @click.command()
 @click.option("--num-qubits", type=int, help="Number of qubits for the experiment")
-@click.option("--state-type", type=click.Choice(VALID_STATE_TYPES, case_sensitive=False), help="Type of quantum state")
-@click.option("--noise-type", type=click.Choice(VALID_NOISE_TYPES, case_sensitive=False), help="Type of noise model")
-@click.option("--noise-enabled/--no-noise", default=True, help="Enable or disable noise")
+@click.option(
+    "--state-type",
+    type=click.Choice(VALID_STATE_TYPES, case_sensitive=False),
+    help="Type of quantum state",
+)
+@click.option(
+    "--noise-type",
+    type=click.Choice(VALID_NOISE_TYPES, case_sensitive=False),
+    help="Type of noise model",
+)
+@click.option(
+    "--noise-enabled/--no-noise", default=True, help="Enable or disable noise"
+)
 @click.option("--shots", type=int, help="Number of shots for qasm simulation")
-@click.option("--sim-mode", type=click.Choice(["qasm", "density"], case_sensitive=False), help="Simulation mode")
+@click.option(
+    "--sim-mode",
+    type=click.Choice(["qasm", "density"], case_sensitive=False),
+    help="Simulation mode",
+)
 @click.option("--error-rate", type=float, help="Custom error rate for noise models")
 @click.option("--z-prob", type=float, help="Z probability for PHASE_FLIP noise")
 @click.option("--i-prob", type=float, help="I probability for PHASE_FLIP noise")
-@click.option("--t1", type=float, help="T1 relaxation time (µs) for THERMAL_RELAXATION noise")
-@click.option("--t2", type=float, help="T2 dephasing time (µs) for THERMAL_RELAXATION noise")
-@click.option("--interactive/--no-interactive", default=True, help="Run in interactive mode")
+@click.option(
+    "--t1", type=float, help="T1 relaxation time (µs) for THERMAL_RELAXATION noise"
+)
+@click.option(
+    "--t2", type=float, help="T2 dephasing time (µs) for THERMAL_RELAXATION noise"
+)
+@click.option(
+    "--interactive/--no-interactive", default=True, help="Run in interactive mode"
+)
 def main(
     num_qubits: Optional[int],
     state_type: Optional[str],
@@ -552,7 +756,7 @@ def main(
     i_prob: Optional[float],
     t1: Optional[float],
     t2: Optional[float],
-    interactive: bool
+    interactive: bool,
 ):
     """
     Quantum Experiment Interactive Runner
@@ -587,6 +791,7 @@ def main(
         experiment_id = str(uuid.uuid4())
         qc, result, _ = run_and_visualize(args, experiment_id)
 
+
 def interactive_experiment():
     """
     Runs the quantum experiment interactively with rerun and skip options.
@@ -595,52 +800,44 @@ def interactive_experiment():
     Results are saved and optionally visualized with non-blocking plots, closable with Ctrl+C.
     """
     while True:
-        console.print("\n[bold green]🚀 Welcome to the Quantum Experiment Interactive Runner![/bold green]")
-        console.print("🔹 Choose an option:")
-        console.print("🔄 Press 's' to skip and use default settings")
-        console.print("🆕 Press 'n' to enter parameters manually")
-        console.print("❌ Press 'q' to quit")
+        print_message("welcome")
+        print_message("choose_option")
+        print_message("skip_option")
+        print_message("new_option")
+        print_message("quit_option")
 
-        choice = get_input("➡️ Your choice: ", "s", ["s", "n", "q"])
+        choice = get_input("your_choice", "s", ["s", "n", "q"])
 
         if choice == "s":
-            console.print("\n[bold blue]⚡ Running with default configuration...[/bold blue]\n")
-            # Prompt for quick visualization choice
-            viz_choice = get_input(
-                "Show visualization? (p/plot, h/hypergraph, n/none) [p]: ",
-                "p",
-                ["p", "h", "n"],
-            )
+            print_message("running_with_defaults")
+            viz_choice = get_input("viz_type_prompt", "p", ["p", "h", "n"])
             args = collect_parameters(interactive=True)
             args["visualization_type"] = (
-                "plot" if viz_choice in ["p", "plot"]
-                else "hypergraph" if viz_choice in ["h", "hypergraph"]
-                else "none"
+                "plot"
+                if viz_choice in ["p", "plot"]
+                else "hypergraph" if viz_choice in ["h", "hypergraph"] else "none"
             )
             if args["visualization_type"] != "none":
-                args["save_plot"] = (
-                    get_input("Enter path to save (press Enter for display): ", "").strip()
-                    or None
-                )
+                args["save_plot"] = get_input("save_plot_prompt", "").strip() or None
                 if args["visualization_type"] == "plot" and args["sim_mode"] == "qasm":
-                    args["min_occurrences"] = int(
-                        get_input(f"Minimum occurrences [0]: ", "0") or 0
+                    args["min_occurrences"] = get_numeric_input(
+                        "min_occurrences_prompt", "0"
                     )
         elif choice == "n":
             args = collect_parameters(interactive=True)
         elif choice == "q":
-            console.print("\n[bold yellow]👋 Exiting Quantum Experiment Runner. Goodbye![/bold yellow]")
+            print_message("goodbye")
             return
         else:
-            console.print("[bold red]⚠️ Invalid choice! Please enter s, n, or q.[/bold red]")
+            print_message("invalid_choice")
             continue
 
         # Display parameter summary
         display_params_summary(args)
 
         # Confirm before running
-        if get_input("Proceed with these parameters? (y/n) [y]: ", "y", ["y", "n"]) != "y":
-            console.print("[bold yellow]Parameters discarded. Returning to prompt...[/bold yellow]")
+        if get_input("proceed_prompt", "y", ["y", "n"]) != "y":
+            print_message("params_discarded")
             continue
 
         experiment_id = str(uuid.uuid4())
@@ -648,44 +845,47 @@ def interactive_experiment():
 
         # Rerun prompt
         while True:
-            params_str = format_params(args)
-            console.print(f"\n[bold blue]🔄 Current parameters:[/bold blue] {params_str}")
+            print_message("current_params", params=format_params(args))
             if plot_closed_with_ctrl_c:
-                console.print("[bold yellow]Plot was closed with Ctrl+C. Would you like to run the experiment again with the same parameters?[/bold yellow]")
-                rerun_choice = get_input("Run again? (y/n) [y]: ", "y", ["y", "n"])
+                print_message("rerun_plot_prompt")
+                rerun_choice = get_input("rerun_choice_prompt", "y", ["y", "n"])
                 if rerun_choice == "y":
                     experiment_id = str(uuid.uuid4())
-                    qc, result, plot_closed_with_ctrl_c = run_and_visualize(args, experiment_id)
+                    qc, result, plot_closed_with_ctrl_c = run_and_visualize(
+                        args, experiment_id
+                    )
                     continue
                 else:
                     plot_closed_with_ctrl_c = False  # Reset flag
 
-            next_choice = get_input(
-                "\n➡️ Rerun? (r/same, n/new, q/quit): ", "r", ["r", "n", "q"]
-            )
+            next_choice = get_input("rerun_prompt", "r", ["r", "n", "q"])
             if next_choice == "r":
-                console.print("\n[bold blue]🔁 Rerunning with same parameters...[/bold blue]\n")
+                print_message("rerun_same")
                 logger.log_with_experiment_id(
-                    logger_instance, "info",
+                    logger_instance,
+                    "info",
                     f"Rerunning experiment with {args['num_qubits']} qubits, {args['state_type']} state, "
                     f"{'with' if args['noise_enabled'] else 'without'} {args['noise_type']} noise",
                     experiment_id,
                     extra_info={
                         "num_qubits": args["num_qubits"],
-                        "state_type": args['state_type'],
+                        "state_type": args["state_type"],
                         "noise_type": args["noise_type"],
                         "noise_enabled": args["noise_enabled"],
-                        "sim_mode": args["sim_mode"]
-                    }
+                        "sim_mode": args["sim_mode"],
+                    },
                 )
                 experiment_id = str(uuid.uuid4())
-                qc, result, plot_closed_with_ctrl_c = run_and_visualize(args, experiment_id)
+                qc, result, plot_closed_with_ctrl_c = run_and_visualize(
+                    args, experiment_id
+                )
             elif next_choice == "n":
-                console.print("\n[bold blue]🆕 Restarting parameter selection...[/bold blue]\n")
+                print_message("restart_params")
                 break
             else:  # 'q'
-                console.print("\n[bold yellow]👋 Exiting Quantum Experiment Runner. Goodbye![/bold yellow]")
+                print_message("goodbye")
                 return
+
 
 if __name__ == "__main__":
     main()

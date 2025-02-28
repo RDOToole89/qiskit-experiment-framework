@@ -1,4 +1,4 @@
-# src/quantum_experiment/config.py
+# src/config/config.py
 
 """
 Configuration file for default experiment parameters.
