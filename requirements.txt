@@ -7,7 +7,7 @@ cffi==1.17.1              # C Foreign Function Interface for Python
 cryptography==44.0.0      # Secure communications and cryptographic functions
 packaging==24.2           # Utilities for packaging Python projects
 pycparser==2.22           # Required for CFFI (C parser)
-wheel @ file:///opt/homebrew/Cellar/python%403.13/3.13.1/libexec/wheel-0.45.1-py3-none-any.whl#sha256=da46333d5dcbde6e20cf7e2f8fff9e9ce76e8c94dc4afd6fb95fc4bc2745fb5e # Universal package manager (latest version)      
+wheel @ file:///opt/homebrew/Cellar/python%403.13/3.13.1/libexec/wheel-0.45.1-py3-none-any.whl#sha256=da46333d5dcbde6e20cf7e2f8fff9e9ce76e8c94dc4afd6fb95fc4bc2745fb5e  # Universal package manager
 
 # ==========================
 # ✅ Qiskit Dependencies (Latest versions as of Feb 2025)
@@ -25,3 +25,12 @@ matplotlib==3.10.0         # Visualization & plotting for quantum experiments
 numpy==1.26.3             # Essential for numerical operations and matrices
 hypernetx==2.3.13          # Hypergraph visualization for quantum correlations
 fastjsonschema==2.16.0     # JSON schema validation (required by hypernetx)
+
+# ==========================
+# ✅ Additional CLI & Utility Packages
+# ==========================
+
+click==8.1.8              # For command-line interface functionality
+rich==13.9.4              # For enhanced terminal output and styling
+tqdm==4.67.1             # Progress bars for loops and processing
+natsort==8.4.0            # Natural sorting for basis states and similar lists

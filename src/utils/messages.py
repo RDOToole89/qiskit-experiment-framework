@@ -91,6 +91,7 @@ MESSAGES = {
     "hypergraph_density_no_noise_prompt": (
         "Would you like to proceed with this configuration, enable noise, or change visualization type? (p/e/v) [{default}]: "
     ),
+    "hypergraph_plot_bloch_prompt": "Plot Bloch vectors? (y/n) [{default}]: ",
     "suggested_multi_qubit_noise_types": "[bold blue]Suggested multi-qubit noise types: DEPOLARIZING, PHASE_FLIP, THERMAL_RELAXATION[/bold blue]",
     "switched_noise_type": "[bold green]Switched noise type to {noise_type}.[/bold green]",
     "noise_disabled": "[bold yellow]Noise has been disabled for this configuration.[/bold yellow]",

@@ -8,6 +8,7 @@ from .hypergraph import (
     compute_permutation_symmetric_correlations,
     compute_su2_symmetry,
     compute_conditional_correlations,
+    compute_su3_symmetry,
 )
 from .visualizer import Visualizer
 
@@ -19,5 +20,6 @@ __all__ = [
     "compute_parity_distribution",
     "compute_permutation_symmetric_correlations",
     "compute_su2_symmetry",
+    "compute_su3_symmetry",
     "compute_conditional_correlations",
 ]

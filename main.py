@@ -18,6 +18,10 @@ Example usage:
     python main.py --num-qubits 3 --state-type GHZ --sim-mode density  # Non-interactive mode
 """
 
+import matplotlib
+
+matplotlib.use("TkAgg")  # Set Matplotlib backend to TkAgg for interactive plotting
+
 import click
 from rich.console import Console
 from rich.table import Table
@@ -161,7 +165,6 @@ def display_params_summary(args: Dict) -> None:
         "T2": args["t2"] if args["t2"] is not None else "Default",
         "Custom Params": args["custom_params"] if args["custom_params"] else "None",
     }
-    # Add stepped parameters if applicable
     if args.get("noise_stepped", False):
         params_to_display.update(
             {
@@ -183,7 +186,6 @@ def display_params_summary(args: Dict) -> None:
         if "t2_start" in args:
             params_to_display["T2 Start"] = args["t2_start"]
             params_to_display["T2 End"] = args["t2_end"]
-
     for param, value in params_to_display.items():
         table.add_row(param, str(value))
     console.print(table)
@@ -200,8 +202,8 @@ def switch_to_plot(args: Dict) -> Dict:
         )
     else:  # density mode
         real_imag = input_handler.get_input("real_imag_prompt", "a", ["r", "i", "a"])
-        args["show_real"] = real_imag == "r"
-        args["show_imag"] = real_imag == "i"
+        args["show_real"] = real_imag in ["r", "a"]
+        args["show_imag"] = real_imag in ["i", "a"]
     return args
 
 
@@ -298,8 +300,8 @@ def collect_stepped_noise_parameters(args: Dict) -> Dict:
             "noise_end_prompt", "0.5", float
         )
 
-    # Collect stepped parameters for PHASE_FLIP noise
-    if args["noise_type"] == "PHASE_FLIP":
+    # Collect stepped parameters for DEPOLARIZING noise (skip for PHASE_FLIP and BIT_FLIP)
+    if args["noise_type"] == "DEPOLARIZING":
         if input_handler.prompt_yes_no("custom_zi_probs_stepped_prompt", default="n"):
             args["z_prob_start"] = input_handler.get_numeric_input(
                 "z_prob_start_prompt", "0.0", float
@@ -351,12 +353,9 @@ def collect_visualization_settings(args: Dict) -> Dict:
             input_handler.get_input("save_plot_prompt", default="").strip() or None
         )
         if args["visualization_type"] == "plot" and args["sim_mode"] == "qasm":
-            try:
-                args["min_occurrences"] = input_handler.get_numeric_input(
-                    "min_occurrences_prompt", "0"
-                )
-            except ValueError:
-                return collect_parameters(interactive=True)
+            args["min_occurrences"] = input_handler.get_numeric_input(
+                "min_occurrences_prompt", "0"
+            )
 
     # Hypergraph-specific settings
     if args["visualization_type"] == "hypergraph":
@@ -382,6 +381,11 @@ def collect_visualization_settings(args: Dict) -> Dict:
             )
         else:
             args["hypergraph_config"]["plot_transitions"] = False
+
+        # Add option for Bloch vector plotting
+        args["hypergraph_config"]["plot_bloch"] = input_handler.prompt_yes_no(
+            "hypergraph_plot_bloch_prompt", default="y"
+        )
 
     return args
 
@@ -586,6 +590,7 @@ def validate_and_prompt(args: Dict) -> Dict:
     ):
         print_message("hypergraph_transitions_dependency")
         args["hypergraph_config"]["plot_transitions"] = False
+        print_message("hypergraph_transitions_disabled")
 
     return args
 
@@ -644,6 +649,9 @@ def run_and_visualize(
         ]
     }
     args_for_experiment["experiment_id"] = experiment_id
+
+    # Debug logging to inspect arguments
+    logger_instance.debug(f"Running experiment with args: {args_for_experiment}")
 
     # Handle time-stepped noise
     if args.get("noise_stepped", False) and args["noise_enabled"]:
@@ -719,6 +727,14 @@ def run_and_visualize(
         results = result
         time_steps = None
 
+    # Debug logging to inspect results
+    if isinstance(results, list):
+        logger_instance.debug(f"Time-stepped results: {len(results)} steps")
+        for idx, res in enumerate(results):
+            logger_instance.debug(f"Result {idx} type: {type(res)}")
+    else:
+        logger_instance.debug(f"Single result type: {type(results)}")
+
     # Save results (timestamp first)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = (
@@ -747,17 +763,28 @@ def run_and_visualize(
 
     # Handle visualization
     hypergraph_config = args.get("hypergraph_config", {})
+    logger_instance.debug(f"Hypergraph config: {hypergraph_config}")
+    logger_instance.debug(f"Time steps: {time_steps}")
+    logger_instance.debug(f"Viz result type: {type(viz_result)}")
+
+    # Ensure plot_bloch is set in the config for hypergraph visualization
+    if args["visualization_type"] == "hypergraph":
+        hypergraph_config.setdefault(
+            "plot_bloch", True
+        )  # Enable Bloch vector plotting by default
+
+    # Fixed call to handle_visualization
     plot_closed_with_ctrl_c = handle_visualization(
         viz_result,
-        args,
+        args,  # Pass the full args dictionary
         args["sim_mode"],
         args["state_type"],
         args["noise_type"],
         args["noise_enabled"],
         args.get("save_plot"),
         show_plot_nonblocking,
-        config=hypergraph_config,
-        time_steps=time_steps,
+        hypergraph_config,  # Pass hypergraph_config positionally as config
+        time_steps,  # Pass time_steps positionally
     )
 
     return qc, results, plot_closed_with_ctrl_c
