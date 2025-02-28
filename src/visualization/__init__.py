@@ -2,7 +2,13 @@
 
 from .histogram import plot_histogram
 from .density_matrix import plot_density_matrix
-from .hypergraph import plot_hypergraph
+from .hypergraph import (
+    plot_hypergraph,
+    compute_parity_distribution,
+    compute_permutation_symmetric_correlations,
+    compute_su2_symmetry,
+    compute_conditional_correlations,
+)
 from .visualizer import Visualizer
 
 __all__ = [
@@ -10,4 +16,8 @@ __all__ = [
     "plot_density_matrix",
     "plot_hypergraph",
     "Visualizer",
+    "compute_parity_distribution",
+    "compute_permutation_symmetric_correlations",
+    "compute_su2_symmetry",
+    "compute_conditional_correlations",
 ]

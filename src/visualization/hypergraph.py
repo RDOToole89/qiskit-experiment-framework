@@ -1,14 +1,18 @@
 # src/visualization/hypergraph.py
 
+import os
+import logging
 import matplotlib.pyplot as plt
-import hypernetx as hnx
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 import numpy as np
 import networkx as nx
-import os
+import hypernetx as hnx
 from typing import Optional, Dict, List, Union
-import logging
-from qiskit.quantum_info import partial_trace, Pauli
 from itertools import combinations
+from qiskit.quantum_info import partial_trace, Pauli
+from scipy.spatial import ConvexHull
+
 
 logger = logging.getLogger("QuantumExperiment.Visualization")
 
@@ -26,17 +30,6 @@ GELL_MANN = [
 
 
 def compute_su2_symmetry(counts: Dict, num_qubits: int, shots: float) -> Dict:
-    """
-    Computes SU(2) symmetry metrics using Pauli correlations (XX, YY, ZZ) for pairwise qubits.
-
-    Args:
-        counts (Dict): Measurement counts.
-        num_qubits (int): Number of qubits.
-        shots (float): Total number of shots.
-
-    Returns:
-        Dict: Pauli correlations for each pair of qubits and SU(2) symmetry metric.
-    """
     correlations = {"XX": {}, "YY": {}, "ZZ": {}}
     for i in range(num_qubits):
         for j in range(i + 1, num_qubits):
@@ -52,16 +45,6 @@ def compute_su2_symmetry(counts: Dict, num_qubits: int, shots: float) -> Dict:
 
 
 def compute_su3_symmetry(density_matrix: np.ndarray, num_qubits: int) -> float:
-    """
-    Computes SU(3) symmetry metrics using Gell-Mann matrices for 3-qubit subsets.
-
-    Args:
-        density_matrix (np.ndarray): Density matrix.
-        num_qubits (int): Number of qubits.
-
-    Returns:
-        float: SU(3) symmetry metric (variance of Gell-Mann expectations).
-    """
     if num_qubits < 3:
         return 0.0
     rho_123 = partial_trace(density_matrix, keep=[0, 1, 2], dims=[2] * num_qubits)
@@ -73,15 +56,6 @@ def compute_su3_symmetry(density_matrix: np.ndarray, num_qubits: int) -> float:
 
 
 def compute_bloch_vector(rho: np.ndarray) -> tuple:
-    """
-    Computes the Bloch vector (x, y, z) for a single-qubit density matrix.
-
-    Args:
-        rho (np.ndarray): Single-qubit density matrix.
-
-    Returns:
-        tuple: (x, y, z) coordinates on the Bloch sphere.
-    """
     pauli_x = Pauli("X").to_matrix()
     pauli_y = Pauli("Y").to_matrix()
     pauli_z = Pauli("Z").to_matrix()
@@ -96,14 +70,6 @@ def plot_bloch_sphere_vectors(
     time_steps: List[float],
     save_path: str,
 ) -> None:
-    """
-    Plots the Bloch sphere trajectories for each qubit over time.
-
-    Args:
-        bloch_vectors (List[Dict[int, tuple]]): List of Bloch vectors per qubit at each timestep.
-        time_steps (List[float]): Timesteps.
-        save_path (str): Base path to save the plots.
-    """
     from mpl_toolkits.mplot3d import Axes3D
 
     num_qubits = len(bloch_vectors[0])
@@ -150,18 +116,6 @@ def compute_correlations(
     mode: str,
     config: Dict,
 ) -> Dict:
-    """
-    Computes correlations from correlation data based on configuration.
-
-    Args:
-        correlation_data (Dict): Counts or density matrix data.
-        num_qubits (int): Number of qubits.
-        mode (str): 'qasm' or 'density'.
-        config (Dict): Configuration for correlation computation.
-
-    Returns:
-        Dict: Dictionary of edges with correlation weights.
-    """
     edges = {}
     edge_id = 0
     shots = sum(correlation_data.values()) if mode == "qasm" else 1
@@ -207,15 +161,7 @@ def plot_hypergraph(
     config: Optional[Dict] = None,
 ) -> None:
     """
-    Plots a hypergraph of quantum state correlations with configurable options.
-
-    Args:
-        correlation_data (Union[Dict, List[Dict]]): Counts or density matrix data, or list for time evolution.
-        state_type (str, optional): Quantum state type.
-        noise_type (str, optional): Noise applied.
-        save_path (str, optional): File path to save the plot.
-        time_steps (List[float], optional): Timesteps for dynamic visualization.
-        config (Dict, optional): Configuration dictionary.
+    Plots a hypergraph of quantum state correlations with enhanced scientific visualization.
     """
     config = config or {}
     config.setdefault("max_order", 2)
@@ -224,7 +170,7 @@ def plot_hypergraph(
     config.setdefault("plot_transitions", False)
     config.setdefault("plot_bloch", False)
     config.setdefault("node_color", "blue")
-    config.setdefault("edge_color", "red")
+    config.setdefault("edge_color", "red")  # fallback color
 
     if time_steps is not None and isinstance(correlation_data, list):
         if config["plot_bloch"]:
@@ -255,107 +201,222 @@ def plot_hypergraph(
             plot_error_transition_graph(correlation_data, time_steps, save_path)
     else:
         plot_single_hypergraph(
-            correlation_data,
-            state_type,
-            noise_type,
-            save_path,
-            None,
-            config,
+            correlation_data, state_type, noise_type, save_path, None, config
         )
 
 
 def plot_single_hypergraph(
-    correlation_data: Dict,
-    state_type: Optional[str],
-    noise_type: Optional[str],
-    save_path: Optional[str],
-    time_step: Optional[float],
-    config: Dict,
+    correlation_data: dict,
+    state_type: str,
+    noise_type: str,
+    save_path: str,
+    time_step: float,
+    config: dict,
 ) -> None:
     """
-    Plots a single hypergraph for given correlation data.
+    Plots a hypergraph of correlations, plus an analysis box below the plot.
     """
     if not correlation_data:
-        logger.warning("No valid correlation data for hypergraph plotting.")
+        print("No valid correlation data for hypergraph plotting.")
         return
 
+    # Distinguish QASM vs. density mode
     mode = "density" if "density" in correlation_data else "qasm"
     if mode == "density":
         density_matrix = np.array(correlation_data["density"])
         num_qubits = int(np.log2(density_matrix.shape[0]))
     else:
-        num_qubits = len(next(iter(correlation_data.keys())))
+        first_key = next(iter(correlation_data.keys()))
+        num_qubits = len(first_key)
         shots = sum(correlation_data.values())
 
-    nodes = [f"q{i}" for i in range(num_qubits)]
+    # Build edges from correlation
     edges = compute_correlations(correlation_data, num_qubits, mode, config)
     if not edges:
-        logger.warning("No significant correlations found for hypergraph plotting.")
+        print("No significant correlations found for hypergraph plotting.")
         return
 
-    hyperedges = {name: edge_nodes for name, (edge_nodes, _) in edges.items()}
-    H = hnx.Hypergraph(hyperedges)
+    # Collect correlation values for color scaling and stats
+    all_corrs = [props["weight"] for (_, props) in edges.values()]
+    min_corr_val = min(all_corrs)
+    max_corr_val = max(all_corrs)
+    mean_corr_val = np.mean(all_corrs)
+    abs_max_corr = max(abs(c) for c in all_corrs)
 
-    plt.figure(figsize=(10, 6))
-    # Use the corrected keyword 'nodes_kwargs' (with an 's') below.
-    hnx.drawing.draw(
-        H,
-        node_labels={node: node for node in nodes},
-        edge_labels={
-            name: f"{props['weight']:.2f}"
-            for name, (edge_nodes, props) in edges.items()
-        },
-        nodes_kwargs={"color": config["node_color"]},
-        edges_kwargs={"color": config["edge_color"]},
+    # Set up figure with two subplots:
+    #  - top for the hypergraph
+    #  - bottom for the analysis text
+    fig = plt.figure(figsize=(10, 8))
+    # heights: 4 for the graph, 1 for the text
+    gs = fig.add_gridspec(2, 1, height_ratios=[4, 1])
+    ax_graph = fig.add_subplot(gs[0, 0])
+    ax_analysis = fig.add_subplot(gs[1, 0])
+    ax_analysis.set_axis_off()  # We'll just place text here
+
+    # Create a Hypernetx hypergraph
+    Hedges = {}
+    for edge_key, (edge_nodes, _) in edges.items():
+        # use the frozenset of node labels as the key
+        Hedges[frozenset(edge_nodes)] = frozenset(edge_nodes)
+    H = hnx.Hypergraph(Hedges)
+
+    # Position nodes with a spring layout
+    pos = nx.spring_layout(H, seed=42)
+
+    # Build style info for each edge
+    cmap = cm.RdYlGn
+    norm = mcolors.Normalize(vmin=-abs_max_corr, vmax=abs_max_corr)
+    scale_factor = 4.0
+
+    edge_styles = {}
+    edge_labels = {}
+
+    for edge_key, (edge_nodes, props) in edges.items():
+        corr_val = props["weight"]
+        color = cmap(norm(corr_val))
+        linewidth = 1 + scale_factor * (abs(corr_val) / abs_max_corr)
+        edge_styles[frozenset(edge_nodes)] = {
+            "color": color,
+            "linewidth": linewidth,
+        }
+
+        label_text = f"{corr_val:.2f}"
+        if abs(corr_val) == abs_max_corr:
+            label_text += " *"  # highlight max
+        edge_labels[frozenset(edge_nodes)] = label_text
+
+    # Draw the graph on ax_graph
+    # Draw nodes
+    nx.draw_networkx_nodes(
+        H, pos, node_color=config.get("node_color", "blue"), ax=ax_graph
     )
-    title = f"{state_type or 'Quantum'} State Hypergraph"
-    if noise_type:
-        title += f" with {noise_type} Noise"
-    if time_step is not None:
-        title += f" (t={time_step:.2f})"
-    plt.title(title)
+    nx.draw_networkx_labels(H, pos, ax=ax_graph)
 
+    # For each hyperedge, we draw a polygon
+    for ekey, style_dict in edge_styles.items():
+        pts = np.array([pos[node] for node in ekey])
+        if len(pts) >= 3:
+            try:
+                hull = ConvexHull(pts)
+                poly = pts[hull.vertices]
+            except:
+                poly = pts
+        else:
+            poly = pts
+
+        patch = plt.Polygon(
+            poly,
+            closed=True,
+            fill=False,
+            edgecolor=style_dict["color"],
+            linewidth=style_dict["linewidth"],
+        )
+        ax_graph.add_patch(patch)
+
+        # place label at centroid
+        centroid = poly.mean(axis=0)
+        ax_graph.text(
+            centroid[0],
+            centroid[1],
+            edge_labels[ekey],
+            fontsize=10,
+            ha="center",
+            va="center",
+            color="black",
+        )
+
+    # Title
+    title_str = f"{state_type or 'Quantum'} State Hypergraph"
+    if noise_type:
+        title_str += f" with {noise_type} Noise"
+    if time_step is not None:
+        title_str += f" (t={time_step:.2f})"
+    ax_graph.set_title(title_str)
+
+    # Add colorbar
+    sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cb = fig.colorbar(
+        sm, ax=ax_graph, orientation="vertical", label="Correlation Value"
+    )
+
+    # --- Build the analysis text that always shows some basic info ---
+    analysis_lines = []
+    analysis_lines.append(r"**Basic Correlation Stats**:")
+    if mode == "qasm":
+        analysis_lines.append(f"- Shots Used: {shots}")
+    analysis_lines.append(f"- Min Corr: {min_corr_val:.2f}")
+    analysis_lines.append(f"- Max Corr: {max_corr_val:.2f}")
+    analysis_lines.append(f"- Mean Corr: {mean_corr_val:.2f}")
+
+    # If symmetry analysis was chosen, add more info
     if config.get("symmetry_analysis"):
         if mode == "qasm":
+            from . import (
+                compute_parity_distribution,
+                compute_permutation_symmetric_correlations,
+                compute_su2_symmetry,
+            )
+
             parity = compute_parity_distribution(correlation_data, num_qubits)
             perm_sym = compute_permutation_symmetric_correlations(
                 correlation_data, num_qubits, shots
             )
             su2_sym = compute_su2_symmetry(correlation_data, num_qubits, shots)
-            symmetry_text = (
-                f"Parity (Even/Odd): {parity['even']:.2f}/{parity['odd']:.2f}\n"
-                f"Perm. Sym. ZZ: {perm_sym:.2f}\n"
-                f"SU(2) Symmetry (var): {su2_sym['su2_symmetry']:.2f}"
+            analysis_lines.append("")
+            analysis_lines.append(r"**Symmetry Analysis (QASM)**:")
+            analysis_lines.append(
+                f"- Parity (Even/Odd): {parity['even']:.2f}/{parity['odd']:.2f}"
             )
-            plt.text(
-                0.05,
-                0.95,
-                symmetry_text,
-                transform=plt.gca().transAxes,
-                bbox=dict(facecolor="white", alpha=0.8),
+            analysis_lines.append(f"- Permutation-Symmetric ZZ: {perm_sym:.2f}")
+            analysis_lines.append(
+                f"- SU(2) Symmetry (var): {su2_sym['su2_symmetry']:.2f}"
             )
         else:
+            from . import compute_conditional_correlations, compute_su3_symmetry
+
+            # For density matrix mode
             conditional_corrs = compute_conditional_correlations(
                 density_matrix, num_qubits
             )
-            avg_corr = np.mean(list(conditional_corrs.values()))
-            su3_sym = compute_su3_symmetry(density_matrix, num_qubits)
-            symmetry_text = (
-                f"Avg. Conditional Corr.: {avg_corr:.2f}\n"
-                f"SU(3) Symmetry (var): {su3_sym:.2f}"
-            )
-            plt.text(
-                0.05,
-                0.95,
-                symmetry_text,
-                transform=plt.gca().transAxes,
-                bbox=dict(facecolor="white", alpha=0.8),
-            )
+            avg_cc = np.mean(list(conditional_corrs.values()))
+            su3_val = compute_su3_symmetry(density_matrix, num_qubits)
+            analysis_lines.append("")
+            analysis_lines.append(r"**Symmetry Analysis (Density)**:")
+            analysis_lines.append(f"- Avg. Conditional Corr: {avg_cc:.2f}")
+            analysis_lines.append(f"- SU(3) Symmetry (var): {su3_val:.2f}")
+
+    # You could also add other CLI-based checks here, e.g. if config["plot_transitions"] is True, etc.
+
+    # Convert lines into a single multiline string with basic styling
+    # We'll do a bit of Markdown-like or ReST-like syntax
+    analysis_text = "\n".join(analysis_lines)
+
+    # Put that text in the analysis subplot (below)
+    # We'll do a fancy box style with alpha=0.9
+    from matplotlib.patches import FancyBboxPatch
+
+    ax_analysis.text(
+        0.01,
+        0.5,
+        analysis_text,
+        fontsize=10,
+        ha="left",
+        va="center",
+        # You can do more fancy styling:
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.9),
+        transform=ax_analysis.transAxes,
+    )
+
+    # Hide axis lines on the analysis subplot
+    ax_analysis.set_xlim(0, 1)
+    ax_analysis.set_ylim(0, 1)
+
+    # Finally save or show
     if save_path:
-        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-        plt.savefig(save_path, bbox_inches="tight", dpi=300)
-        logger.info(f"Saved hypergraph to {save_path}")
-        plt.close()
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Saved hypergraph to {save_path}")
+        plt.close(fig)
     else:
         plt.show()
 
@@ -363,14 +424,6 @@ def plot_single_hypergraph(
 def plot_error_transition_graph(
     counts_list: List[Dict], time_steps: List[float], save_path: str
 ) -> None:
-    """
-    Plots a transition graph of error propagation over time.
-
-    Args:
-        counts_list (List[Dict]): List of counts dictionaries at each timestep.
-        time_steps (List[float]): Timesteps corresponding to counts.
-        save_path (str): Base path to save the plots.
-    """
     num_qubits = len(next(iter(counts_list[0].keys())))
     G = nx.DiGraph()
     states = [format(i, f"0{num_qubits}b") for i in range(2**num_qubits)]
